@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.selectors import VACANCY_DESCRIPTION, VACANCY_HEADING
 from hh_raiser.logging_config import LOGGER
@@ -27,6 +28,7 @@ def view_vacancies(
             LOGGER.info("Открываю вакансию %s из %s.", index, len(vacancy_urls))
             page.bring_to_front()
             page.goto(canonical, wait_until="domcontentloaded")
+            dismiss_hh_pro_modal(page)
             heading = page.locator(VACANCY_HEADING)
             if not heading.count():
                 heading = page.get_by_role("heading", level=1)

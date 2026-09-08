@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.selectors import SEARCH_URL, VACANCY_CARD, VACANCY_TITLE_LINK
 
@@ -21,6 +22,7 @@ def view_search_page(
     try:
         search_url = f"{SEARCH_URL}?{urlencode({'text': query, 'page': search_page})}"
         page.goto(search_url, wait_until="domcontentloaded")
+        dismiss_hh_pro_modal(page)
         cards = page.locator(VACANCY_CARD)
         links = page.locator(VACANCY_TITLE_LINK)
         collected: list[str] = []

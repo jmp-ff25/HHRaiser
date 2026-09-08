@@ -65,6 +65,7 @@ class BrowserTests(unittest.TestCase):
                     (PageState("available"), object()),
                 ],
             ),
+            patch("hh_raiser.browser.dismiss_hh_pro_modal", return_value=False),
             patch("hh_raiser.browser.time.monotonic", side_effect=[0, 0, 300, 300, 300]),
             patch("hh_raiser.browser.LOGGER.warning"),
         ):

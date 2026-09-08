@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     PROFILE_EDUCATION,
     PROFILE_EXPERIENCE,
@@ -22,6 +23,7 @@ from playwright.sync_api import Error as PlaywrightError
 def review_resume(page: Page) -> ActivityResult:
     try:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
+        dismiss_hh_pro_modal(page)
         if not page.locator(RESUME_CARD).count():
             return ActivityResult(
                 action=ActivityKind.REVIEW_RESUME,

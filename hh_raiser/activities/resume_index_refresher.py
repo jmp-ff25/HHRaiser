@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_DESCRIPTION_INPUT,
     EXPERIENCE_EDIT_BUTTON,
@@ -90,6 +91,7 @@ def refresh_resume_index(page: Page, *, profile_dir: Path) -> ActivityResult:
     marker = _read_marker(profile_dir)
     try:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
+        dismiss_hh_pro_modal(page)
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
         edit_buttons.first.wait_for(state="visible", timeout=15_000)
         button_count = edit_buttons.count()

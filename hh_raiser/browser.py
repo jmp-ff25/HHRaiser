@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hh_raiser.credentials import normalize_russian_phone, resolve_credentials
+from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import redact_url
 from hh_raiser.logging_config import LOGGER
 from hh_raiser.models import (
@@ -156,9 +157,11 @@ def wait_for_profile_content(
     page_refresh_seconds: int,
 ) -> None:
     while True:
+        dismiss_hh_pro_modal(page)
         deadline = time.monotonic() + page_refresh_seconds
         heading = page.get_by_role("heading", name=resume_title, exact=True)
         while time.monotonic() < deadline:
+            dismiss_hh_pro_modal(page)
             if heading.is_visible(timeout=0):
                 return
             page.wait_for_timeout(_DOM_RECHECK_INTERVAL_MS)
@@ -207,8 +210,10 @@ def wait_for_recognized_state(
     page_refresh_seconds: int,
 ) -> tuple[PageState, Locator | None]:
     while True:
+        dismiss_hh_pro_modal(page)
         deadline = time.monotonic() + page_refresh_seconds
         while time.monotonic() < deadline:
+            dismiss_hh_pro_modal(page)
             state, button = read_page_state(page, resume_title)
             if state.kind in accepted_states:
                 return state, button

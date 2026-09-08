@@ -10,12 +10,18 @@ from hh_raiser.browser import (
     wait_for_profile_content,
     wait_for_profile_raise_state,
 )
+from hh_raiser.infrastructure.browser.modal_guard import (
+    dismiss_hh_pro_modal,
+    hh_pro_modal_visible,
+)
 from hh_raiser.logging_config import LOGGER
 from hh_raiser.models import MOSCOW, PROFILE_URL
 from hh_raiser.storage import guarded_until, write_attempt_guard, write_next_raise_time
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
 def run_cycle(
@@ -29,6 +35,7 @@ def run_cycle(
     page_refresh_seconds: int,
 ) -> datetime | None:
     page.goto(PROFILE_URL, wait_until="domcontentloaded")
+    dismiss_hh_pro_modal(page)
     wait_for_profile_content(
         page,
         resume_title,
@@ -59,11 +66,20 @@ def run_cycle(
             "Защита от повтора активна до %s.", protected_until.strftime("%Y-%m-%d %H:%M %Z")
         )
         return protected_until
+    dismiss_hh_pro_modal(page)
+    if hh_pro_modal_visible(page):
+        LOGGER.warning("Окно hh PRO осталось открытым; откладываю поднятие без клика.")
+        return None
+    try:
+        button.click(trial=True, timeout=5_000)
+    except PlaywrightTimeoutError:
+        LOGGER.warning("Кнопка поднятия перекрыта или недоступна; повторю проверку позже.")
+        return None
     attempted_at = datetime.now(MOSCOW)
     write_attempt_guard(profile_dir, attempted_at)
     capture.enabled = True
     try:
-        button.click()
+        button.click(timeout=10_000)
         result = wait_for_post_click_state(
             page,
             resume_title,
