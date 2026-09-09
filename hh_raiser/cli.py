@@ -86,7 +86,7 @@ def bounded_non_negative_float(value: str, *, maximum: float) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Поднимает одно резюме HH, когда действие доступно."
+        description=("Управляет разрешённой активностью и актуальностью личного резюме на HH.ru.")
     )
     parser.add_argument(
         "--resume-title", default=os.environ.get("HH_RESUME_TITLE", "Python-разработчик")
