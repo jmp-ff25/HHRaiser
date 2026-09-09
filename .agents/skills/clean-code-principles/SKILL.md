@@ -210,4 +210,3 @@ This skill is built on established software engineering principles:
 - SOLID Principles: 10 rules
 - Core Principles: 12 rules
 - Design Patterns: 1 rule
-
