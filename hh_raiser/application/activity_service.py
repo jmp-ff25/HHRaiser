@@ -30,7 +30,7 @@ def run_permitted_activities(
         rotation.reset_coverage()
         generation_advanced = True
         LOGGER.info(
-            "Достигнут лимит уникальных вакансий; начато поколение истории %s.",
+            "Достигнут лимит уникальных вакансий; начат цикл уникальных просмотров № %s.",
             generation,
         )
 
@@ -44,7 +44,7 @@ def run_permitted_activities(
                 rotation.reset_coverage()
                 generation_advanced = True
                 LOGGER.info(
-                    "Все известные страницы проверены; начато поколение истории %s.",
+                    "Все известные страницы проверены; начат цикл уникальных просмотров № %s.",
                     generation,
                 )
                 continue

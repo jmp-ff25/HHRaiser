@@ -187,7 +187,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--unique-vacancy-limit",
         type=lambda value: bounded_non_negative_int(value, maximum=100_000),
         default=None,
-        help="Размер поколения уникальных просмотров; 0 отключает лимит.",
+        help="Размер цикла уникальных просмотров; 0 отключает лимит.",
     )
     parser.add_argument(
         "--revisit-after-days",
@@ -199,12 +199,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--reset-on-exhaustion",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Начинать новое поколение после полного прохода страниц выдачи.",
+        help="Начинать новый цикл уникальных просмотров после полного прохода страниц выдачи.",
     )
     parser.add_argument(
         "--reset-vacancy-history",
         action="store_true",
-        help="Перед запуском вручную начать новое поколение истории вакансий.",
+        help="Перед запуском вручную начать новый цикл уникальных просмотров.",
     )
     parser.add_argument(
         "--search-scrolls",
@@ -387,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:
         generation = args.vacancy_history.advance_generation()
-        LOGGER.info("История вакансий вручную переведена в поколение %s.", generation)
+        LOGGER.info("Вручную начат цикл уникальных просмотров № %s.", generation)
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 
