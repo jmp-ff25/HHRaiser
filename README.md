@@ -403,10 +403,20 @@ hh_resume_raiser.py   # совместимая точка запуска
 
 - `conventional-commits` — Conventional Commits с русским описанием;
 - `python-quality` — стандарты Python 3.12, архитектуры, Playwright, тестов и
-  безопасного журналирования.
+  безопасного журналирования;
+- `find-skills` — поиск и оценка дополнительных Skills через skills.sh;
+- `python-patterns` — идиоматичный Python, PEP 8, типизация и структура пакетов;
+- `python-code-style` — Ruff, mypy, именование, docstrings и документация;
+- `clean-code-principles` — SOLID, DRY, KISS, YAGNI и шаблоны проектирования;
+- `pytest-skill` — fixtures, parametrization, mocking и организация тестов;
+- `async-python-patterns` — безопасная конкурентность и работа с `asyncio`;
+- `python-performance-optimization` — профилирование и измеримая оптимизация;
+- `code-review-excellence` — системное ревью логики, тестов и безопасности;
+- `systematic-debugging` — поиск первопричины и воспроизводимая диагностика.
 
 Skills хранятся вместе с кодом, поэтому одинаковые правила действуют для всех
-последующих сессий и разработчиков, использующих совместимого агента.
+последующих сессий и разработчиков, использующих совместимого агента. Версии и
+источники внешних Skills зафиксированы в `skills-lock.json`.
 
 ## Проверка и разработка
 
