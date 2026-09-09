@@ -5,10 +5,32 @@ from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
 
-from hh_raiser.cli import build_parser
+from hh_raiser.cli import build_parser, log_activity_results
+from hh_raiser.domain.action import ActivityKind
+from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.logging_config import configure_logging
 
 
 class CliTests(unittest.TestCase):
+    def test_vacancy_results_are_logged_as_one_summary(self) -> None:
+        stream = StringIO()
+        configure_logging(stream=stream, use_color=False)
+        results = [
+            ActivityResult(
+                action=ActivityKind.VIEW_VACANCY,
+                status=ActivityStatus.SUCCESS,
+                detail="Страница вакансии содержательно просмотрена.",
+            )
+            for _ in range(10)
+        ]
+
+        log_activity_results(results)
+
+        output = stream.getvalue()
+        self.assertEqual(output.count("Итоги просмотра вакансий"), 1)
+        self.assertIn("успешно — 10", output)
+        self.assertNotIn("Страница вакансии содержательно просмотрена", output)
+
     def test_command_line_credentials_are_accepted(self) -> None:
         args = build_parser().parse_args(["--phone", "+79990000000", "--password", "secret"])
         self.assertEqual(args.phone, "+79990000000")

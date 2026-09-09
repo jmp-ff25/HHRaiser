@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,7 +21,9 @@ from hh_raiser.browser import (
     wait_for_page_close,
     wait_for_profile_content,
 )
+from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
+from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
 from hh_raiser.logging_config import LOGGER, configure_logging
 from hh_raiser.models import MOSCOW, PROFILE_URL
@@ -31,6 +34,33 @@ from hh_raiser.service import run_cycle
 
 class BrowserClosedDuringWait(RuntimeError):
     pass
+
+
+def log_activity_results(results: list[ActivityResult]) -> None:
+    vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
+    for result in results:
+        if result.action != ActivityKind.VIEW_VACANCY:
+            LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+
+    if not vacancy_results:
+        return
+    if len(vacancy_results) == 1 and vacancy_results[0].status == ActivityStatus.SKIPPED:
+        result = vacancy_results[0]
+        LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+        return
+
+    counts = Counter(result.status for result in vacancy_results)
+    LOGGER.info(
+        "Итоги просмотра вакансий: успешно — %s; неизвестный результат — %s; "
+        "ошибки — %s; пропущено — %s.",
+        counts[ActivityStatus.SUCCESS],
+        counts[ActivityStatus.UNKNOWN],
+        counts[ActivityStatus.ERROR],
+        counts[ActivityStatus.SKIPPED],
+    )
+    for result in vacancy_results:
+        if result.status in {ActivityStatus.ERROR, ActivityStatus.UNKNOWN}:
+            LOGGER.warning("Проблема при просмотре вакансии: %s — %s", result.status, result.detail)
 
 
 def positive_seconds(value: str) -> int:
@@ -210,10 +240,7 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
             ):
                 activity_started_at = datetime.now(MOSCOW)
                 results = orchestrator.run(page)
-                for result in results:
-                    LOGGER.info(
-                        "Активность %s: %s — %s", result.action, result.status, result.detail
-                    )
+                log_activity_results(results)
                 next_activity_at = activity_started_at + timedelta(
                     seconds=args.activity_interval_seconds
                 )

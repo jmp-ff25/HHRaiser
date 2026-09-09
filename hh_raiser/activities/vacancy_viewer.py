@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 from playwright.sync_api import Error as PlaywrightError
 
 
+def normalize_vacancy_title(value: str) -> str:
+    return " ".join(value.split())[:200] or "название не распознано"
+
+
 def view_vacancies(
     page: Page, vacancy_urls: list[str], policy: ActivityPolicy
 ) -> list[ActivityResult]:
@@ -26,7 +30,6 @@ def view_vacancies(
         if canonical is None:
             continue
         try:
-            LOGGER.info("Открываю вакансию %s из %s.", index, len(vacancy_urls))
             page.bring_to_front()
             page.goto(canonical, wait_until="domcontentloaded")
             dismiss_hh_pro_modal(page)
@@ -37,10 +40,26 @@ def view_vacancies(
                 heading.first.wait_for(state="visible", timeout=10_000)
             description = page.locator(VACANCY_DESCRIPTION)
             recognized = heading.count() > 0 and heading.first.is_visible()
+            vacancy_title = (
+                normalize_vacancy_title(heading.first.inner_text())
+                if recognized
+                else normalize_vacancy_title("")
+            )
+            LOGGER.info(
+                "Открыта вакансия %s из %s: «%s».",
+                index,
+                len(vacancy_urls),
+                vacancy_title,
+            )
             description_visible = description.count() > 0 and description.first.is_visible()
             scrolls_completed = 0
             if description_visible:
-                LOGGER.info("Просматриваю содержимое вакансии %s из %s.", index, len(vacancy_urls))
+                LOGGER.info(
+                    "Просматриваю вакансию %s из %s: «%s».",
+                    index,
+                    len(vacancy_urls),
+                    vacancy_title,
+                )
                 for _ in range(policy.vacancy_scrolls):
                     page.locator("body").press("PageDown")
                     scrolls_completed += 1
