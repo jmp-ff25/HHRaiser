@@ -83,3 +83,13 @@ class CliTests(unittest.TestCase):
     def test_resume_refresh_interval_must_be_positive(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             build_parser().parse_args(["--resume-index-refresh-seconds", "0"])
+
+    def test_browser_restart_is_disabled_by_default(self) -> None:
+        args = build_parser().parse_args([])
+
+        self.assertFalse(args.restart_browser_on_close)
+
+    def test_browser_restart_requires_explicit_flag(self) -> None:
+        args = build_parser().parse_args(["--restart-browser-on-close"])
+
+        self.assertTrue(args.restart_browser_on_close)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
@@ -61,6 +62,8 @@ def view_vacancies(
                 )
             )
         except PlaywrightError as error:
+            if is_closed_playwright_error(error):
+                raise
             results.append(
                 ActivityResult(
                     action=ActivityKind.VIEW_VACANCY,

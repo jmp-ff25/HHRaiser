@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
@@ -58,6 +59,8 @@ def review_resume(page: Page) -> ActivityResult:
             metadata={"suggestion_count": len(suggestions), **checks},
         )
     except PlaywrightError as error:
+        if is_closed_playwright_error(error):
+            raise
         return ActivityResult(
             action=ActivityKind.REVIEW_RESUME,
             status=ActivityStatus.ERROR,

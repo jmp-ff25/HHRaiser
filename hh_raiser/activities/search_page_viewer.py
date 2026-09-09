@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
+from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
@@ -57,6 +58,8 @@ def view_search_page(
             collected,
         )
     except PlaywrightError as error:
+        if is_closed_playwright_error(error):
+            raise
         return (
             ActivityResult(
                 action=ActivityKind.REVIEW_SEARCH,

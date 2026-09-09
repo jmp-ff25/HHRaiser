@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--restart-browser-on-close",
+        action="store_true",
+        help="Явно перезапускать Chromium после закрытия окна (по умолчанию программа завершается).",
+    )
     parser.add_argument("--check-login", action="store_true")
     parser.add_argument("--phone")
     parser.add_argument("--password")
@@ -312,12 +317,16 @@ def main(argv: list[str] | None = None) -> int:
         except PlaywrightError as error:
             if not is_closed_playwright_error(error):
                 raise
-            if args.once:
-                LOGGER.error("Браузер был закрыт во время одиночного запуска.")
-                return 2
+            if not args.restart_browser_on_close:
+                LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
+                return 0
             retry_seconds = min(max(args.poll_seconds, 1), 30)
             LOGGER.warning(
                 "Связь с браузером потеряна; перезапуск через %s.",
                 format_wait_duration(retry_seconds),
             )
-            time.sleep(retry_seconds)
+            try:
+                time.sleep(retry_seconds)
+            except KeyboardInterrupt:
+                LOGGER.info("Остановлено пользователем.")
+                return 0
