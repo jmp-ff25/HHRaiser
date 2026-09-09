@@ -63,16 +63,23 @@ def wait_for_due_time(
     poll_seconds: int,
     now: Callable[[], datetime] | None = None,
     sleep: Callable[[float], None] = time.sleep,
-) -> None:
+    wait_for_stop: Callable[[float], bool] | None = None,
+) -> bool:
+    def wait(seconds: float) -> bool:
+        if wait_for_stop is not None:
+            return wait_for_stop(seconds)
+        sleep(seconds)
+        return False
+
     if target is None:
-        sleep(poll_seconds)
-        return
+        return not wait(poll_seconds)
     clock = now or (lambda: datetime.now(MOSCOW))
     while True:
         remaining = seconds_until(target, buffer_seconds=buffer_seconds, now=clock())
         if remaining == 0:
-            return
-        sleep(min(poll_seconds, remaining))
+            return True
+        if wait(min(poll_seconds, remaining)):
+            return False
 
 
 def format_wait_duration(seconds: int) -> str:

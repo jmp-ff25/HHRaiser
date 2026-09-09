@@ -17,6 +17,7 @@ from hh_raiser.browser import (
     close_context_quietly,
     is_closed_playwright_error,
     login_if_needed,
+    wait_for_page_close,
     wait_for_profile_content,
 )
 from hh_raiser.domain.policies import ActivityPolicy
@@ -26,6 +27,10 @@ from hh_raiser.models import MOSCOW, PROFILE_URL
 from hh_raiser.reporting.activity_report import append_activity_results
 from hh_raiser.scheduling import format_wait_duration, seconds_until, wait_for_due_time
 from hh_raiser.service import run_cycle
+
+
+class BrowserClosedDuringWait(RuntimeError):
+    pass
 
 
 def positive_seconds(value: str) -> int:
@@ -242,11 +247,17 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
                 poll_intervals.append(args.activity_interval_seconds)
             if resume_refresh_enabled:
                 poll_intervals.append(args.resume_index_refresh_seconds)
-            wait_for_due_time(
+            due = wait_for_due_time(
                 datetime.now(MOSCOW) + timedelta(seconds=wait_seconds),
                 buffer_seconds=0,
                 poll_seconds=min(poll_intervals),
+                wait_for_stop=lambda seconds: wait_for_page_close(page, seconds),
             )
+            if not due:
+                if args.restart_browser_on_close:
+                    raise BrowserClosedDuringWait
+                LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
+                return
     except KeyboardInterrupt:
         interrupted = True
         raise
@@ -314,6 +325,17 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             LOGGER.info("Остановлено пользователем.")
             return 0
+        except BrowserClosedDuringWait:
+            retry_seconds = min(max(args.poll_seconds, 1), 30)
+            LOGGER.warning(
+                "Окно браузера закрыто; явный перезапуск через %s.",
+                format_wait_duration(retry_seconds),
+            )
+            try:
+                time.sleep(retry_seconds)
+            except KeyboardInterrupt:
+                LOGGER.info("Остановлено пользователем.")
+                return 0
         except PlaywrightError as error:
             if not is_closed_playwright_error(error):
                 raise

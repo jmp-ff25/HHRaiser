@@ -56,5 +56,20 @@ class SchedulingTests(unittest.TestCase):
         )
         self.assertEqual(sleeps, [600, 600])
 
+    def test_wait_can_stop_while_browser_is_closed(self) -> None:
+        started_at = datetime(2026, 9, 1, 9, 0, tzinfo=MOSCOW)
+        waits: list[float] = []
+
+        due = wait_for_due_time(
+            started_at + timedelta(minutes=20),
+            buffer_seconds=0,
+            poll_seconds=600,
+            now=lambda: started_at,
+            wait_for_stop=lambda seconds: waits.append(seconds) or True,
+        )
+
+        self.assertFalse(due)
+        self.assertEqual(waits, [600])
+
     def test_formats_wait_duration(self) -> None:
         self.assertEqual(format_wait_duration(3_661), "1 ч. 1 мин. 1 сек.")

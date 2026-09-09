@@ -8,12 +8,38 @@ from hh_raiser.browser import (
     close_context_quietly,
     is_closed_playwright_error,
     read_page_state,
+    wait_for_page_close,
     wait_for_profile_raise_state,
 )
 from hh_raiser.models import LoginEvidence, PageState
 
 
 class BrowserTests(unittest.TestCase):
+    def test_already_closed_page_interrupts_wait_immediately(self) -> None:
+        class ClosedPage:
+            def is_closed(self) -> bool:
+                return True
+
+            def wait_for_event(self, *_args: object, **_kwargs: object) -> None:
+                raise AssertionError("wait_for_event must not be called")
+
+        self.assertTrue(wait_for_page_close(ClosedPage(), 300))
+
+    def test_close_event_interrupts_active_wait(self) -> None:
+        class ClosingPage:
+            def is_closed(self) -> bool:
+                return False
+
+            def wait_for_event(self, event: str, *, timeout: float) -> None:
+                self.event = event
+                self.timeout = timeout
+
+        page = ClosingPage()
+
+        self.assertTrue(wait_for_page_close(page, 300))
+        self.assertEqual(page.event, "close")
+        self.assertEqual(page.timeout, 300_000)
+
     def test_read_page_state_checks_button_without_implicit_playwright_wait(self) -> None:
         class Button:
             def __init__(self) -> None:

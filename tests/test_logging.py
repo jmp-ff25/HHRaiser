@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from io import StringIO
+from pathlib import Path
 
 from hh_raiser.logging_config import LOGGER, configure_logging
 
@@ -15,5 +16,7 @@ class LoggingTests(unittest.TestCase):
 
         output = stream.getvalue()
         self.assertIn("\033[33m", output)
+        self.assertIn("tests/test_logging.py:", output)
+        self.assertNotIn(str(Path(__file__).resolve().parents[1]), output)
         self.assertIn("\033[0m Обычный текст сообщения", output)
         self.assertNotIn("\033[33mОбычный текст сообщения", output)

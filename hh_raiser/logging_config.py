@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import ClassVar, TextIO
 
 LOGGER = logging.getLogger("hh_resume_raiser")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ColorFormatter(logging.Formatter):
@@ -26,12 +28,17 @@ class ColorFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         timestamp = self.formatTime(record, self.datefmt)
+        try:
+            location = Path(record.pathname).resolve().relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            location = record.filename
+        location = f"{location}:{record.lineno}"
         message = record.getMessage()
         if record.exc_info:
             message = f"{message}\n{self.formatException(record.exc_info)}"
         if record.stack_info:
             message = f"{message}\n{self.formatStack(record.stack_info)}"
-        prefix = f"{timestamp} {record.levelname}"
+        prefix = f"{timestamp} {record.levelname} {location}"
         if not self._use_color:
             return f"{prefix} {message}"
         color = self._COLORS.get(record.levelno)

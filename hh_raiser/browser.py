@@ -253,3 +253,14 @@ def is_closed_playwright_error(error: BaseException) -> bool:
     return error.__class__.__name__ == "TargetClosedError" or any(
         marker in str(error).lower() for marker in _CLOSED_PLAYWRIGHT_ERROR_MARKERS
     )
+
+
+def wait_for_page_close(page: Page, timeout_seconds: float) -> bool:
+    """Keep Playwright responsive while waiting and report a user-closed page."""
+    if page.is_closed():
+        return True
+    try:
+        page.wait_for_event("close", timeout=max(1, timeout_seconds * 1_000))
+        return True
+    except PlaywrightTimeoutError:
+        return page.is_closed()
