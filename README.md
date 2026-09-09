@@ -21,11 +21,76 @@ Playwright и постоянный профиль Chromium; архитектур
 > Проект не отправляет отклики и не обещает повышения позиции резюме. Влияние
 > наблюдаемых действий на внутренние алгоритмы HH.ru не считается доказанным.
 
+## Быстрый старт
+
+Ниже — полный путь от клонирования до запуска всех возможностей на Windows.
+
+### 1. Установите проект
+
+```powershell
+git clone git@github.com:jmp-ff25/HHRaiser.git
+cd HHRaiser
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m playwright install chromium
+Copy-Item .\hh-config.example.ini .\hh-config.ini
+```
+
+### 2. Укажите своё резюме и поисковые запросы
+
+Откройте `hh-config.ini` и замените значения своими:
+
+```ini
+[resume]
+title = Точное название моего резюме
+
+[activity]
+search_queries =
+    Первый поисковый запрос
+    Второй поисковый запрос
+```
+
+### 3. Добавьте учётные данные
+
+Создайте в корне проекта файл `hh-credentials.ini`:
+
+```ini
+[hh]
+phone = +70000000000
+password = replace-me
+```
+
+Оба локальных INI-файла исключены из Git.
+
+### 4. Один раз инициализируйте сессию
+
+```powershell
+.\.venv\Scripts\python.exe hh_resume_raiser.py --once --dry-run `
+  --credentials-file .\hh-credentials.ini
+```
+
+Завершите вход, CAPTCHA или дополнительное подтверждение в открытом Chromium.
+
+### 5. Запустите полный непрерывный режим
+
+```powershell
+.\.venv\Scripts\python.exe hh_resume_raiser.py --headless --full-activity `
+  --activity-interval-seconds 300 `
+  --resume-index-refresh `
+  --resume-index-refresh-seconds 1800 `
+  --credentials-file .\hh-credentials.ini
+```
+
+Эта команда включает автоматическое поднятие, циклический просмотр настроенной
+выдачи и вакансий, проверку структуры резюме и обратимое обновление его версии.
+Остановить программу можно одним нажатием Ctrl+C.
+
 ## Оглавление
 
+- [Быстрый старт](#быстрый-старт)
 - [Возможности](#возможности)
 - [Требования](#требования)
-- [Быстрый старт](#быстрый-старт)
 - [Установка](#установка)
 - [Настройка профессии и запросов](#настройка-профессии-и-запросов)
 - [Учётные данные](#учётные-данные)
@@ -69,21 +134,6 @@ Playwright и постоянный профиль Chromium; архитектур
 На Linux команды аналогичны, но вместо `.\.venv\Scripts\python.exe` используется
 `.venv/bin/python`. Для headless-запуска на чистом сервере системные зависимости
 Chromium можно установить командой `python -m playwright install --with-deps chromium`.
-
-## Быстрый старт
-
-```powershell
-git clone git@github.com:jmp-ff25/HHRaiser.git
-cd HHRaiser
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m playwright install chromium
-Copy-Item .\hh-config.example.ini .\hh-config.ini
-```
-
-Создайте `hh-credentials.ini`, выполните первичную видимую авторизацию, а затем
-запустите нужный режим. Эти два шага подробно описаны ниже.
 
 ## Установка
 
