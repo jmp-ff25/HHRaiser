@@ -15,7 +15,11 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "hh-config.ini"
             path.write_text(
                 "[resume]\ntitle = Аналитик\n\n"
-                "[activity]\nsearch_queries =\n    Аналитик данных\n    Data analyst\n",
+                "[activity]\nsearch_queries =\n    Аналитик данных\n    Data analyst\n"
+                "unique_vacancy_limit = 750\n"
+                "revisit_after_days = 21\n"
+                "search_pages_per_cycle = 30\n"
+                "reset_on_exhaustion = false\n",
                 encoding="utf-8",
             )
 
@@ -23,6 +27,10 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.resume_title, "Аналитик")
         self.assertEqual(config.search_queries, ("Аналитик данных", "Data analyst"))
+        self.assertEqual(config.unique_vacancy_limit, 750)
+        self.assertEqual(config.revisit_after_days, 21)
+        self.assertEqual(config.search_pages_per_cycle, 30)
+        self.assertFalse(config.reset_on_exhaustion)
 
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:
@@ -67,3 +75,21 @@ class ConfigTests(unittest.TestCase):
             self.assertRaisesRegex(ValueError, "search_queries"),
         ):
             resolve_runtime_settings(args)
+
+    def test_rejects_out_of_range_history_settings_from_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Резюме\n"
+                "[activity]\nsearch_queries = Python\nrevisit_after_days = -1\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                config_file=path,
+                resume_title=None,
+                search_query=None,
+                full_activity=True,
+            )
+
+            with self.assertRaisesRegex(ValueError, "revisit_after_days"):
+                resolve_runtime_settings(args)

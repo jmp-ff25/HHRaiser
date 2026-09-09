@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import random
 import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from hh_raiser.infrastructure.storage.vacancy_history import (
+    VacancyHistory,
+    vacancy_id_from_url,
+)
 from hh_raiser.models import MOSCOW
 from hh_raiser.storage import (
     read_next_raise_time,
@@ -32,3 +37,68 @@ class StorageTests(unittest.TestCase):
 
             self.assertIn(attempted_at.isoformat(), payload)
             self.assertNotIn("description", payload)
+
+
+class VacancyHistoryTests(unittest.TestCase):
+    def test_extracts_only_canonical_vacancy_identifier(self) -> None:
+        self.assertEqual(vacancy_id_from_url("https://hh.ru/vacancy/123"), "123")
+        self.assertIsNone(vacancy_id_from_url("https://hh.ru/search/vacancy?page=1"))
+        self.assertIsNone(vacancy_id_from_url("https://example.com/vacancy/123"))
+
+    def test_persists_viewed_vacancy_across_instances_and_queries(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "vacancy-history.sqlite3"
+            first = VacancyHistory(path, randomizer=random.Random(1))
+            url = "https://hh.ru/vacancy/123"
+            self.assertEqual(
+                first.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
+                [url],
+            )
+            first.mark_viewed(url)
+
+            second = VacancyHistory(path, randomizer=random.Random(1))
+            selected = second.reserve_unseen(
+                [url], search_query="Backend", limit=1, revisit_after_days=0
+            )
+
+            self.assertEqual(selected, [])
+            self.assertEqual(second.viewed_count(), 1)
+
+    def test_new_generation_allows_old_vacancy_when_revisit_delay_is_disabled(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(
+                Path(directory) / "vacancy-history.sqlite3",
+                randomizer=random.Random(1),
+            )
+            url = "https://hh.ru/vacancy/123"
+            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+            history.mark_viewed(url)
+
+            history.advance_generation()
+
+            self.assertEqual(
+                history.reserve_unseen(
+                    [url], search_query="Python", limit=1, revisit_after_days=14
+                ),
+                [],
+            )
+            self.assertEqual(
+                history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
+                [url],
+            )
+
+    def test_release_makes_failed_reservation_available_again(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(
+                Path(directory) / "vacancy-history.sqlite3",
+                randomizer=random.Random(1),
+            )
+            url = "https://hh.ru/vacancy/123"
+            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+
+            history.release(url)
+
+            self.assertEqual(
+                history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
+                [url],
+            )

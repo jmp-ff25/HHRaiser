@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
@@ -9,7 +9,12 @@ from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
-from hh_raiser.infrastructure.hh.selectors import SEARCH_URL, VACANCY_CARD, VACANCY_TITLE_LINK
+from hh_raiser.infrastructure.hh.selectors import (
+    PAGINATION_LINK,
+    SEARCH_URL,
+    VACANCY_CARD,
+    VACANCY_TITLE_LINK,
+)
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -17,9 +22,21 @@ if TYPE_CHECKING:
 from playwright.sync_api import Error as PlaywrightError
 
 
+def pagination_page_count(hrefs: list[str], *, current_page: int) -> int:
+    """Read the largest zero-based HH page parameter from semantic pagination links."""
+    page_indexes = [current_page]
+    for href in hrefs:
+        try:
+            page_value = parse_qs(urlsplit(href).query).get("page", [""])[0]
+            page_indexes.append(int(page_value))
+        except (TypeError, ValueError):
+            continue
+    return max(page_indexes) + 1
+
+
 def view_search_page(
     page: Page, policy: ActivityPolicy, *, query: str, search_page: int
-) -> tuple[ActivityResult, list[str]]:
+) -> tuple[ActivityResult, list[str], int]:
     try:
         search_url = f"{SEARCH_URL}?{urlencode({'text': query, 'page': search_page})}"
         page.goto(search_url, wait_until="domcontentloaded")
@@ -37,6 +54,12 @@ def view_search_page(
                 page.locator("body").press("PageDown")
                 page.wait_for_timeout(round(policy.scroll_pause_seconds * 1_000))
         card_count = cards.count()
+        pagination_hrefs = [
+            href
+            for link in page.locator(PAGINATION_LINK).all()
+            if (href := link.get_attribute("href"))
+        ]
+        page_count = pagination_page_count(pagination_hrefs, current_page=search_page)
         status = ActivityStatus.SUCCESS if card_count and collected else ActivityStatus.UNKNOWN
         detail = (
             "Выдача открыта и карточки вакансий распознаны."
@@ -53,9 +76,11 @@ def view_search_page(
                     "vacancies_collected": len(collected),
                     "scrolls_completed": policy.search_scrolls,
                     "search_page": search_page,
+                    "search_page_count": page_count,
                 },
             ),
             collected,
+            page_count,
         )
     except PlaywrightError as error:
         if is_closed_playwright_error(error):
@@ -67,4 +92,5 @@ def view_search_page(
                 detail=f"Не удалось исследовать выдачу: {error.__class__.__name__}",
             ),
             [],
+            search_page + 1,
         )

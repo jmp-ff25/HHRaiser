@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from hh_raiser.activities.search_page_viewer import pagination_page_count
 from hh_raiser.activities.vacancy_viewer import normalize_vacancy_title
 
 
@@ -14,3 +15,12 @@ class VacancyViewerTests(unittest.TestCase):
 
     def test_empty_title_has_readable_fallback(self) -> None:
         self.assertEqual(normalize_vacancy_title("  \n "), "название не распознано")
+
+    def test_reads_zero_based_page_count_from_pagination_links(self) -> None:
+        self.assertEqual(
+            pagination_page_count(
+                ["/search/vacancy?text=Python&page=1", "/search/vacancy?page=7"],
+                current_page=0,
+            ),
+            8,
+        )

@@ -90,6 +90,13 @@ class CliTests(unittest.TestCase):
                 "3",
                 "--vacancy-view-seconds",
                 "8.5",
+                "--search-pages-per-cycle",
+                "40",
+                "--unique-vacancy-limit",
+                "500",
+                "--revisit-after-days",
+                "30",
+                "--no-reset-on-exhaustion",
             ]
         )
         self.assertTrue(args.full_activity)
@@ -100,6 +107,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.search_scrolls, 4)
         self.assertEqual(args.vacancy_scrolls, 3)
         self.assertEqual(args.vacancy_view_seconds, 8.5)
+        self.assertEqual(args.search_pages_per_cycle, 40)
+        self.assertEqual(args.unique_vacancy_limit, 500)
+        self.assertEqual(args.revisit_after_days, 30)
+        self.assertFalse(args.reset_on_exhaustion)
 
     def test_activity_limits_are_bounded(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):

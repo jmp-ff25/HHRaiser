@@ -27,6 +27,7 @@ from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
+from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER, configure_logging
 from hh_raiser.models import MOSCOW, PROFILE_URL
 from hh_raiser.reporting.activity_report import append_activity_results
@@ -39,10 +40,22 @@ class BrowserClosedDuringWait(RuntimeError):
 
 
 def log_activity_results(results: list[ActivityResult]) -> None:
+    search_results = [result for result in results if result.action == ActivityKind.REVIEW_SEARCH]
     vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
     for result in results:
-        if result.action != ActivityKind.VIEW_VACANCY:
+        if result.action not in {ActivityKind.REVIEW_SEARCH, ActivityKind.VIEW_VACANCY}:
             LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+
+    if search_results:
+        search_counts = Counter(result.status for result in search_results)
+        LOGGER.info(
+            "Итоги поиска уникальных вакансий: страниц проверено — %s; "
+            "успешно распознано — %s; неизвестный результат — %s; ошибки — %s.",
+            len(search_results),
+            search_counts[ActivityStatus.SUCCESS],
+            search_counts[ActivityStatus.UNKNOWN],
+            search_counts[ActivityStatus.ERROR],
+        )
 
     if not vacancy_results:
         return
@@ -76,6 +89,13 @@ def bounded_non_negative_int(value: str, *, maximum: int) -> int:
     parsed = int(value)
     if not 0 <= parsed <= maximum:
         raise argparse.ArgumentTypeError(f"Значение должно быть от 0 до {maximum}")
+    return parsed
+
+
+def bounded_positive_int(value: str, *, maximum: int) -> int:
+    parsed = int(value)
+    if not 1 <= parsed <= maximum:
+        raise argparse.ArgumentTypeError(f"Значение должно быть от 1 до {maximum}")
     return parsed
 
 
@@ -158,6 +178,35 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
     )
     parser.add_argument(
+        "--search-pages-per-cycle",
+        type=lambda value: bounded_positive_int(value, maximum=200),
+        default=None,
+        help="Максимум страниц выдачи, проверяемых для набора уникальных вакансий.",
+    )
+    parser.add_argument(
+        "--unique-vacancy-limit",
+        type=lambda value: bounded_non_negative_int(value, maximum=100_000),
+        default=None,
+        help="Размер поколения уникальных просмотров; 0 отключает лимит.",
+    )
+    parser.add_argument(
+        "--revisit-after-days",
+        type=lambda value: bounded_non_negative_int(value, maximum=3_650),
+        default=None,
+        help="Минимальный возраст просмотра перед повторным выбором вакансии.",
+    )
+    parser.add_argument(
+        "--reset-on-exhaustion",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Начинать новое поколение после полного прохода страниц выдачи.",
+    )
+    parser.add_argument(
+        "--reset-vacancy-history",
+        action="store_true",
+        help="Перед запуском вручную начать новое поколение истории вакансий.",
+    )
+    parser.add_argument(
         "--search-scrolls",
         type=lambda value: bounded_non_negative_int(value, maximum=20),
         default=3,
@@ -200,6 +249,10 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
         minimum_cooldown = timedelta(hours=args.minimum_cooldown_hours)
         activity_policy = ActivityPolicy(
             vacancies_per_cycle=args.vacancies_per_cycle,
+            search_pages_per_cycle=args.search_pages_per_cycle,
+            unique_vacancy_limit=args.unique_vacancy_limit,
+            revisit_after_days=args.revisit_after_days,
+            reset_on_exhaustion=args.reset_on_exhaustion,
             search_scrolls=args.search_scrolls,
             vacancy_scrolls=args.vacancy_scrolls,
             scroll_pause_seconds=args.scroll_pause_seconds,
@@ -210,6 +263,7 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
             policy=activity_policy,
             report_path=report_path,
             rotation=VacancyRotation(queries=args.search_queries),
+            history=args.vacancy_history,
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -326,6 +380,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     args.resume_title = settings.resume_title
     args.search_queries = settings.search_queries
+    args.search_pages_per_cycle = settings.search_pages_per_cycle
+    args.unique_vacancy_limit = settings.unique_vacancy_limit
+    args.revisit_after_days = settings.revisit_after_days
+    args.reset_on_exhaustion = settings.reset_on_exhaustion
+    args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
+    if args.reset_vacancy_history:
+        generation = args.vacancy_history.advance_generation()
+        LOGGER.info("История вакансий вручную переведена в поколение %s.", generation)
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 

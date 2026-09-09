@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+import random
+import re
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from hh_raiser.models import MOSCOW
+
+VACANCY_ID_PATTERN = re.compile(r"/vacancy/(\d+)$")
+
+
+def vacancy_id_from_url(url: str) -> str | None:
+    """Return the public HH vacancy identifier without retaining URL parameters."""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != "hh.ru":
+        return None
+    match = VACANCY_ID_PATTERN.fullmatch(parts.path)
+    return match.group(1) if match else None
+
+
+class VacancyHistory:
+    """SQLite-backed exact set of discovered and successfully viewed vacancies."""
+
+    def __init__(self, path: Path, *, randomizer: random.Random | None = None) -> None:
+        self.path = path
+        self._random = randomizer or random.Random()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=10)
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    def _initialize(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT OR IGNORE INTO metadata(key, value)
+                VALUES ('current_generation', '1');
+
+                CREATE TABLE IF NOT EXISTS vacancies (
+                    vacancy_id TEXT PRIMARY KEY,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    last_viewed_at TEXT,
+                    view_count INTEGER NOT NULL DEFAULT 0,
+                    last_viewed_generation INTEGER,
+                    reserved_generation INTEGER,
+                    reserved_until TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS vacancy_queries (
+                    vacancy_id TEXT NOT NULL REFERENCES vacancies(vacancy_id),
+                    search_query TEXT NOT NULL,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (vacancy_id, search_query)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_vacancies_generation
+                ON vacancies(last_viewed_generation);
+                CREATE INDEX IF NOT EXISTS idx_vacancies_reserved_until
+                ON vacancies(reserved_until);
+                """
+            )
+
+    @property
+    def generation(self) -> int:
+        with closing(self._connect()) as connection, connection:
+            return self._read_generation(connection)
+
+    def advance_generation(self) -> int:
+        """Start a new logical pass without deleting historical analytics."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            generation = self._read_generation(connection) + 1
+            connection.execute(
+                "UPDATE metadata SET value = ? WHERE key = 'current_generation'",
+                (str(generation),),
+            )
+            connection.execute(
+                "UPDATE vacancies SET reserved_generation = NULL, reserved_until = NULL"
+            )
+        return generation
+
+    def viewed_count(self) -> int:
+        generation = self.generation
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM vacancies WHERE last_viewed_generation = ?",
+                (generation,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def reserve_unseen(
+        self,
+        urls: list[str],
+        *,
+        search_query: str,
+        limit: int,
+        revisit_after_days: int,
+        lease_seconds: int = 900,
+    ) -> list[str]:
+        """Atomically reserve eligible vacancies so future workers cannot duplicate them."""
+        if limit <= 0:
+            return []
+        id_to_url = {
+            vacancy_id: url for url in urls if (vacancy_id := vacancy_id_from_url(url)) is not None
+        }
+        if not id_to_url:
+            return []
+
+        now = datetime.now(MOSCOW)
+        now_text = now.isoformat()
+        cutoff = (now - timedelta(days=revisit_after_days)).isoformat()
+        reserved_until = (now + timedelta(seconds=lease_seconds)).isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            generation = self._read_generation(connection)
+            self._record_discovered(connection, id_to_url, search_query, now_text)
+            placeholders = ",".join("?" for _ in id_to_url)
+            rows = connection.execute(
+                f"""
+                SELECT vacancy_id
+                FROM vacancies
+                WHERE vacancy_id IN ({placeholders})
+                  AND (last_viewed_generation IS NULL OR last_viewed_generation <> ?)
+                  AND (last_viewed_at IS NULL OR last_viewed_at <= ?)
+                  AND (reserved_until IS NULL OR reserved_until <= ?)
+                """,
+                (*id_to_url, generation, cutoff, now_text),
+            ).fetchall()
+            candidate_ids = [str(row[0]) for row in rows]
+            self._random.shuffle(candidate_ids)
+            selected_ids = candidate_ids[:limit]
+            if selected_ids:
+                selected_placeholders = ",".join("?" for _ in selected_ids)
+                connection.execute(
+                    f"""
+                    UPDATE vacancies
+                    SET reserved_generation = ?, reserved_until = ?
+                    WHERE vacancy_id IN ({selected_placeholders})
+                    """,
+                    (generation, reserved_until, *selected_ids),
+                )
+        return [id_to_url[vacancy_id] for vacancy_id in selected_ids]
+
+    def mark_viewed(self, url: str) -> None:
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            generation = self._read_generation(connection)
+            connection.execute(
+                """
+                UPDATE vacancies
+                SET last_viewed_at = ?, view_count = view_count + 1,
+                    last_viewed_generation = ?, reserved_generation = NULL,
+                    reserved_until = NULL
+                WHERE vacancy_id = ?
+                """,
+                (datetime.now(MOSCOW).isoformat(), generation, vacancy_id),
+            )
+
+    def release(self, url: str) -> None:
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                UPDATE vacancies
+                SET reserved_generation = NULL, reserved_until = NULL
+                WHERE vacancy_id = ?
+                """,
+                (vacancy_id,),
+            )
+
+    @staticmethod
+    def _read_generation(connection: sqlite3.Connection) -> int:
+        row = connection.execute(
+            "SELECT value FROM metadata WHERE key = 'current_generation'"
+        ).fetchone()
+        return int(row[0]) if row else 1
+
+    @staticmethod
+    def _record_discovered(
+        connection: sqlite3.Connection,
+        id_to_url: dict[str, str],
+        search_query: str,
+        observed_at: str,
+    ) -> None:
+        for vacancy_id in id_to_url:
+            connection.execute(
+                """
+                INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vacancy_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+                """,
+                (vacancy_id, observed_at, observed_at),
+            )
+            connection.execute(
+                """
+                INSERT INTO vacancy_queries(
+                    vacancy_id, search_query, first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(vacancy_id, search_query)
+                DO UPDATE SET last_seen_at = excluded.last_seen_at
+                """,
+                (vacancy_id, search_query, observed_at, observed_at),
+            )

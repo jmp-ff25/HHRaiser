@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from hh_raiser.browser import is_closed_playwright_error
@@ -17,14 +19,20 @@ if TYPE_CHECKING:
 from playwright.sync_api import Error as PlaywrightError
 
 
+@dataclass(frozen=True)
+class VacancyViewOutcome:
+    url: str
+    result: ActivityResult
+
+
 def normalize_vacancy_title(value: str) -> str:
     return " ".join(value.split())[:200] or "название не распознано"
 
 
 def view_vacancies(
     page: Page, vacancy_urls: list[str], policy: ActivityPolicy
-) -> list[ActivityResult]:
-    results: list[ActivityResult] = []
+) -> Iterator[VacancyViewOutcome]:
+    yielded = False
     for index, url in enumerate(vacancy_urls, start=1):
         canonical = canonical_vacancy_url(url)
         if canonical is None:
@@ -52,6 +60,7 @@ def view_vacancies(
                 vacancy_title,
             )
             description_visible = description.count() > 0 and description.first.is_visible()
+            content_recognized = recognized and description_visible
             scrolls_completed = 0
             if description_visible:
                 LOGGER.info(
@@ -65,37 +74,43 @@ def view_vacancies(
                     scrolls_completed += 1
                     page.wait_for_timeout(round(policy.scroll_pause_seconds * 1_000))
             page.wait_for_timeout(round(policy.vacancy_view_seconds * 1_000))
-            results.append(
-                ActivityResult(
+            yielded = True
+            yield VacancyViewOutcome(
+                url=canonical,
+                result=ActivityResult(
                     action=ActivityKind.VIEW_VACANCY,
-                    status=ActivityStatus.SUCCESS if recognized else ActivityStatus.UNKNOWN,
+                    status=(
+                        ActivityStatus.SUCCESS if content_recognized else ActivityStatus.UNKNOWN
+                    ),
                     detail=(
                         "Страница вакансии содержательно просмотрена."
-                        if recognized
-                        else "Страница открыта, но заголовок вакансии не распознан."
+                        if content_recognized
+                        else "Страница открыта, но содержимое вакансии распознано не полностью."
                     ),
                     metadata={
                         "description_visible": description_visible,
                         "scrolls_completed": scrolls_completed,
                     },
-                )
+                ),
             )
         except PlaywrightError as error:
             if is_closed_playwright_error(error):
                 raise
-            results.append(
-                ActivityResult(
+            yielded = True
+            yield VacancyViewOutcome(
+                url=canonical,
+                result=ActivityResult(
                     action=ActivityKind.VIEW_VACANCY,
                     status=ActivityStatus.ERROR,
                     detail=f"Не удалось просмотреть вакансию: {error.__class__.__name__}",
-                )
+                ),
             )
-    if not results:
-        results.append(
-            ActivityResult(
+    if not yielded:
+        yield VacancyViewOutcome(
+            url="",
+            result=ActivityResult(
                 action=ActivityKind.VIEW_VACANCY,
                 status=ActivityStatus.SKIPPED,
                 detail="Подходящие ссылки на вакансии не найдены.",
-            )
+            ),
         )
-    return results
