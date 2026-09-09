@@ -12,6 +12,19 @@ from hh_raiser.logging_config import configure_logging
 
 
 class CliTests(unittest.TestCase):
+    def test_profession_is_not_hardcoded_in_cli_defaults(self) -> None:
+        args = build_parser().parse_args([])
+
+        self.assertIsNone(args.resume_title)
+        self.assertIsNone(args.search_query)
+
+    def test_multiple_search_queries_are_accepted(self) -> None:
+        args = build_parser().parse_args(
+            ["--search-query", "Первый запрос", "--search-query", "Второй запрос"]
+        )
+
+        self.assertEqual(args.search_query, ["Первый запрос", "Второй запрос"])
+
     def test_vacancy_results_are_logged_as_one_summary(self) -> None:
         stream = StringIO()
         configure_logging(stream=stream, use_color=False)

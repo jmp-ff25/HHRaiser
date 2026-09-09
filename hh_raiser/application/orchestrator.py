@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 class ActivityOrchestrator:
     policy: ActivityPolicy
     report_path: Path
-    rotation: VacancyRotation = field(default_factory=VacancyRotation)
+    rotation: VacancyRotation
 
     def run(self, page: Page) -> list[ActivityResult]:
         results = run_permitted_activities(page, self.policy, self.rotation)

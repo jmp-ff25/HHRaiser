@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 
 from hh_raiser.activities.resume_index_refresher import refresh_resume_index
 from hh_raiser.application.orchestrator import ActivityOrchestrator
+from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.browser import (
     NetworkCapture,
     close_context_quietly,
@@ -21,6 +22,7 @@ from hh_raiser.browser import (
     wait_for_page_close,
     wait_for_profile_content,
 )
+from hh_raiser.config import DEFAULT_CONFIG_PATH, resolve_runtime_settings
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
@@ -88,8 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=("Управляет разрешённой активностью и актуальностью личного резюме на HH.ru.")
     )
+    parser.add_argument("--resume-title")
+    parser.add_argument("--config-file", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument(
-        "--resume-title", default=os.environ.get("HH_RESUME_TITLE", "Python-разработчик")
+        "--search-query",
+        action="append",
+        help="Поисковый запрос для вакансий; параметр можно повторить несколько раз.",
     )
     parser.add_argument(
         "--profile-dir",
@@ -203,6 +209,7 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
         orchestrator = ActivityOrchestrator(
             policy=activity_policy,
             report_path=report_path,
+            rotation=VacancyRotation(queries=args.search_queries),
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -294,7 +301,8 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     configure_logging()
     if args.self_test:
         import unittest
@@ -312,6 +320,12 @@ def main(argv: list[str] | None = None) -> int:
         return subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=False
         ).returncode
+    try:
+        settings = resolve_runtime_settings(args)
+    except ValueError as error:
+        parser.error(str(error))
+    args.resume_title = settings.resume_title
+    args.search_queries = settings.search_queries
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 

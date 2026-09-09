@@ -3,19 +3,12 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-DEFAULT_SEARCH_QUERIES = (
-    "Python разработчик",
-    "Backend разработчик Python",
-    "Python Engineer",
-    "Django FastAPI Python",
-)
-
 
 @dataclass
 class VacancyRotation:
     """Keeps one continuous run varied without persisting vacancy identifiers."""
 
-    queries: tuple[str, ...] = DEFAULT_SEARCH_QUERIES
+    queries: tuple[str, ...]
     pages_per_query: int = 20
     _position: int = 0
     _seen: set[str] = field(default_factory=set)

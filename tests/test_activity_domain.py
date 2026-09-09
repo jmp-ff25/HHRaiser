@@ -59,7 +59,7 @@ class VacancyRotationTests(unittest.TestCase):
         )
 
     def test_prefers_unseen_vacancies_and_recycles_after_exhaustion(self) -> None:
-        rotation = VacancyRotation()
+        rotation = VacancyRotation(queries=("any profession",))
         urls = ["https://hh.ru/vacancy/1", "https://hh.ru/vacancy/2"]
 
         first = rotation.select(urls, 1)

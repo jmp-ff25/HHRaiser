@@ -64,7 +64,7 @@ class BrowserTests(unittest.TestCase):
 
         button = Button()
         with patch("hh_raiser.browser.find_raise_button", return_value=button):
-            read_page_state(Page(), "Python-разработчик")
+            read_page_state(Page(), "Тестовое резюме")
 
         self.assertEqual(button.enabled_timeout, 0)
 
@@ -97,7 +97,7 @@ class BrowserTests(unittest.TestCase):
         ):
             state, _ = wait_for_profile_raise_state(
                 page,
-                "Python-разработчик",
+                "Тестовое резюме",
                 page_refresh_seconds=300,
             )
 
