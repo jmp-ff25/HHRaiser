@@ -226,6 +226,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Перед запуском вручную начать новый цикл уникальных просмотров.",
     )
     parser.add_argument(
+        "--vacancy-matching",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Проверять соответствие вакансии резюме до содержательного просмотра.",
+    )
+    parser.add_argument(
+        "--match-threshold",
+        type=lambda value: bounded_non_negative_int(value, maximum=100),
+        default=None,
+        help="Минимальная оценка соответствия для просмотра вакансии, от 0 до 100.",
+    )
+    parser.add_argument(
         "--search-scrolls",
         type=lambda value: bounded_non_negative_int(value, maximum=20),
         default=3,
@@ -281,6 +293,8 @@ def run_browser_context(
             vacancy_scrolls=args.vacancy_scrolls,
             scroll_pause_seconds=args.scroll_pause_seconds,
             vacancy_view_seconds=args.vacancy_view_seconds,
+            vacancy_matching=args.vacancy_matching,
+            match_threshold=args.match_threshold,
         )
         report_path = args.profile_dir.parent / "activity-events.jsonl"
         orchestrator = ActivityOrchestrator(
@@ -288,6 +302,7 @@ def run_browser_context(
             report_path=report_path,
             rotation=VacancyRotation(queries=args.search_queries),
             history=args.vacancy_history,
+            resume_title=args.resume_title,
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -414,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     args.unique_vacancy_limit = settings.unique_vacancy_limit
     args.revisit_after_days = settings.revisit_after_days
     args.reset_on_exhaustion = settings.reset_on_exhaustion
+    args.vacancy_matching = settings.vacancy_matching
+    args.match_threshold = settings.match_threshold
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:
         generation = args.vacancy_history.advance_generation()

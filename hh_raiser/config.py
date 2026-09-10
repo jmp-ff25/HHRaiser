@@ -11,6 +11,8 @@ DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
 DEFAULT_UNIQUE_VACANCY_LIMIT = 1_000
 DEFAULT_REVISIT_AFTER_DAYS = 14
 DEFAULT_RESET_ON_EXHAUSTION = True
+DEFAULT_VACANCY_MATCHING = True
+DEFAULT_MATCH_THRESHOLD = 55
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,8 @@ class FileConfig:
     unique_vacancy_limit: int | None = None
     revisit_after_days: int | None = None
     reset_on_exhaustion: bool | None = None
+    vacancy_matching: bool | None = None
+    match_threshold: int | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,8 @@ class RuntimeSettings:
     unique_vacancy_limit: int
     revisit_after_days: int
     reset_on_exhaustion: bool
+    vacancy_matching: bool
+    match_threshold: int
 
 
 def parse_search_queries(value: str, *, separator: str = "\n") -> tuple[str, ...]:
@@ -60,6 +66,8 @@ def read_file_config(path: Path) -> FileConfig:
         unique_vacancy_limit = parser.getint("activity", "unique_vacancy_limit", fallback=None)
         revisit_after_days = parser.getint("activity", "revisit_after_days", fallback=None)
         reset_on_exhaustion = parser.getboolean("activity", "reset_on_exhaustion", fallback=None)
+        vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
+        match_threshold = parser.getint("matching", "threshold", fallback=None)
     except ValueError as error:
         raise ValueError(f"Некорректное значение в INI-файле настроек: {path}") from error
     return FileConfig(
@@ -69,6 +77,8 @@ def read_file_config(path: Path) -> FileConfig:
         unique_vacancy_limit=unique_vacancy_limit,
         revisit_after_days=revisit_after_days,
         reset_on_exhaustion=reset_on_exhaustion,
+        vacancy_matching=vacancy_matching,
+        match_threshold=match_threshold,
     )
 
 
@@ -102,6 +112,16 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "reset_on_exhaustion", None)
         if getattr(args, "reset_on_exhaustion", None) is not None
         else file_config.reset_on_exhaustion
+    )
+    vacancy_matching = (
+        getattr(args, "vacancy_matching", None)
+        if getattr(args, "vacancy_matching", None) is not None
+        else file_config.vacancy_matching
+    )
+    match_threshold = (
+        getattr(args, "match_threshold", None)
+        if getattr(args, "match_threshold", None) is not None
+        else file_config.match_threshold
     )
 
     if not resume_title:
@@ -148,5 +168,14 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         ),
         reset_on_exhaustion=(
             reset_on_exhaustion if reset_on_exhaustion is not None else DEFAULT_RESET_ON_EXHAUSTION
+        ),
+        vacancy_matching=(
+            vacancy_matching if vacancy_matching is not None else DEFAULT_VACANCY_MATCHING
+        ),
+        match_threshold=_validate_range(
+            "matching.threshold",
+            match_threshold if match_threshold is not None else DEFAULT_MATCH_THRESHOLD,
+            minimum=0,
+            maximum=100,
         ),
     )

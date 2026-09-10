@@ -20,6 +20,62 @@ def successful_result(action: ActivityKind) -> ActivityResult:
 
 
 class ActivityServiceTests(unittest.TestCase):
+    def test_rejected_vacancy_is_evaluated_but_not_viewed(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            rotation = VacancyRotation(queries=("Backend",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                search_pages_per_cycle=1,
+                revisit_after_days=0,
+                vacancy_matching=True,
+            )
+            url = "https://hh.ru/vacancy/77"
+            rejected = ActivityResult(
+                action=ActivityKind.VIEW_VACANCY,
+                status=ActivityStatus.SKIPPED,
+                detail="rejected",
+                metadata={
+                    "match_evaluated": True,
+                    "match_score": 18,
+                    "match_accepted": False,
+                },
+            )
+            with (
+                patch(
+                    "hh_raiser.application.activity_service.read_resume_text",
+                    return_value="Backend developer Python",
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.view_search_page",
+                    return_value=(
+                        successful_result(ActivityKind.REVIEW_SEARCH),
+                        [url],
+                        1,
+                    ),
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.view_vacancies",
+                    return_value=[VacancyViewOutcome(url=url, result=rejected)],
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.review_resume",
+                    return_value=successful_result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_permitted_activities(object(), policy, rotation, history, "Backend developer")
+
+            self.assertEqual(history.viewed_count(), 0)
+            self.assertEqual(
+                history.reserve_unseen(
+                    [url],
+                    search_query="Backend",
+                    limit=1,
+                    revisit_after_days=0,
+                ),
+                [],
+            )
+
     def test_collects_unique_vacancies_across_multiple_pages(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(
@@ -31,6 +87,7 @@ class ActivityServiceTests(unittest.TestCase):
                 vacancies_per_cycle=3,
                 search_pages_per_cycle=3,
                 revisit_after_days=0,
+                vacancy_matching=False,
             )
 
             def search_page(_page, _policy, *, query: str, search_page: int):
@@ -41,7 +98,8 @@ class ActivityServiceTests(unittest.TestCase):
                 }[search_page]
                 return successful_result(ActivityKind.REVIEW_SEARCH), urls, 2
 
-            def view_pages(_page, urls: list[str], _policy):
+            def view_pages(_page, urls: list[str], _policy, *, matcher=None):
+                self.assertIsNone(matcher)
                 return [
                     VacancyViewOutcome(
                         url=url,
@@ -69,9 +127,10 @@ class ActivityServiceTests(unittest.TestCase):
                     policy,
                     rotation,
                     history,
+                    "Python-разработчик",
                 )
 
-            selected_urls = view_mock.call_args.args[1]
+            selected_urls = [url for call in view_mock.call_args_list for url in call.args[1]]
             self.assertEqual(len(selected_urls), 3)
             self.assertEqual(len(set(selected_urls)), 3)
             self.assertEqual(history.viewed_count(), 3)
@@ -88,6 +147,7 @@ class ActivityServiceTests(unittest.TestCase):
                 vacancies_per_cycle=1,
                 search_pages_per_cycle=1,
                 revisit_after_days=0,
+                vacancy_matching=False,
             )
             url = "https://hh.ru/vacancy/1"
             unknown = ActivityResult(
@@ -113,7 +173,7 @@ class ActivityServiceTests(unittest.TestCase):
                     return_value=successful_result(ActivityKind.REVIEW_RESUME),
                 ),
             ):
-                run_permitted_activities(object(), policy, rotation, history)
+                run_permitted_activities(object(), policy, rotation, history, "Python-разработчик")
 
             self.assertEqual(
                 history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
@@ -128,6 +188,7 @@ class ActivityServiceTests(unittest.TestCase):
                 vacancies_per_cycle=1,
                 search_pages_per_cycle=1,
                 revisit_after_days=0,
+                vacancy_matching=False,
             )
             url = "https://hh.ru/vacancy/1"
             with (
@@ -145,7 +206,7 @@ class ActivityServiceTests(unittest.TestCase):
                 ),
                 self.assertRaisesRegex(RuntimeError, "browser closed"),
             ):
-                run_permitted_activities(object(), policy, rotation, history)
+                run_permitted_activities(object(), policy, rotation, history, "Python-разработчик")
 
             self.assertEqual(
                 history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),

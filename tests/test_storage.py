@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import random
+import sqlite3
 import unittest
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -40,6 +42,42 @@ class StorageTests(unittest.TestCase):
 
 
 class VacancyHistoryTests(unittest.TestCase):
+    def test_existing_database_is_migrated_without_deleting_history(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "vacancy-history.sqlite3"
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT INTO metadata(key, value) VALUES ('current_generation', '1');
+                    CREATE TABLE vacancies (
+                        vacancy_id TEXT PRIMARY KEY,
+                        first_seen_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL,
+                        last_viewed_at TEXT,
+                        view_count INTEGER NOT NULL DEFAULT 0,
+                        last_viewed_generation INTEGER,
+                        reserved_generation INTEGER,
+                        reserved_until TEXT
+                    );
+                    INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
+                    VALUES ('123', '2026-09-01', '2026-09-01');
+                    """
+                )
+
+            VacancyHistory(path)
+
+            with closing(sqlite3.connect(path)) as connection, connection:
+                columns = {
+                    str(row[1]) for row in connection.execute("PRAGMA table_info(vacancies)")
+                }
+                row = connection.execute(
+                    "SELECT vacancy_id FROM vacancies WHERE vacancy_id = '123'"
+                ).fetchone()
+            self.assertIn("last_match_score", columns)
+            self.assertIn("last_match_accepted", columns)
+            self.assertEqual(row, ("123",))
+
     def test_extracts_only_canonical_vacancy_identifier(self) -> None:
         self.assertEqual(vacancy_id_from_url("https://hh.ru/vacancy/123"), "123")
         self.assertIsNone(vacancy_id_from_url("https://hh.ru/search/vacancy?page=1"))
@@ -101,4 +139,17 @@ class VacancyHistoryTests(unittest.TestCase):
             self.assertEqual(
                 history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
                 [url],
+            )
+
+    def test_evaluated_vacancy_is_not_reserved_again_in_same_generation(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "vacancy-history.sqlite3")
+            url = "https://hh.ru/vacancy/456"
+            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+
+            history.mark_evaluated(url, score=31, accepted=False)
+
+            self.assertEqual(
+                history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
+                [],
             )

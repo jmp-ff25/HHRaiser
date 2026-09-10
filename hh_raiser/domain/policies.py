@@ -14,6 +14,8 @@ class ActivityPolicy:
     vacancy_scrolls: int = 2
     scroll_pause_seconds: float = 1.5
     vacancy_view_seconds: float = 12.0
+    vacancy_matching: bool = True
+    match_threshold: int = 55
 
     def __post_init__(self) -> None:
         if not 0 <= self.vacancies_per_cycle <= 25:
@@ -32,3 +34,5 @@ class ActivityPolicy:
             raise ValueError("scroll_pause_seconds must be between 0 and 60")
         if not 0 <= self.vacancy_view_seconds <= 300:
             raise ValueError("vacancy_view_seconds must be between 0 and 300")
+        if not 0 <= self.match_threshold <= 100:
+            raise ValueError("match_threshold must be between 0 and 100")

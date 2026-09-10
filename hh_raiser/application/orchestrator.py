@@ -21,6 +21,7 @@ class ActivityOrchestrator:
     report_path: Path
     rotation: VacancyRotation
     history: VacancyHistory
+    resume_title: str
 
     def run(self, page: Page) -> list[ActivityResult]:
         results = run_permitted_activities(
@@ -28,6 +29,7 @@ class ActivityOrchestrator:
             self.policy,
             self.rotation,
             self.history,
+            self.resume_title,
         )
         append_activity_results(self.report_path, results)
         return results

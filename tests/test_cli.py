@@ -104,6 +104,9 @@ class CliTests(unittest.TestCase):
                 "--revisit-after-days",
                 "30",
                 "--no-reset-on-exhaustion",
+                "--no-vacancy-matching",
+                "--match-threshold",
+                "68",
             ]
         )
         self.assertTrue(args.full_activity)
@@ -118,6 +121,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.unique_vacancy_limit, 500)
         self.assertEqual(args.revisit_after_days, 30)
         self.assertFalse(args.reset_on_exhaustion)
+        self.assertFalse(args.vacancy_matching)
+        self.assertEqual(args.match_threshold, 68)
 
     def test_activity_limits_are_bounded(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):

@@ -6,11 +6,16 @@ from typing import TYPE_CHECKING
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
+from hh_raiser.domain.matching import VacancyCompatibilityMatcher, VacancyDocument
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
-from hh_raiser.infrastructure.hh.selectors import VACANCY_DESCRIPTION, VACANCY_HEADING
+from hh_raiser.infrastructure.hh.selectors import (
+    VACANCY_DESCRIPTION,
+    VACANCY_HEADING,
+    VACANCY_SKILL,
+)
 from hh_raiser.logging_config import LOGGER
 
 if TYPE_CHECKING:
@@ -30,7 +35,11 @@ def normalize_vacancy_title(value: str) -> str:
 
 
 def view_vacancies(
-    page: Page, vacancy_urls: list[str], policy: ActivityPolicy
+    page: Page,
+    vacancy_urls: list[str],
+    policy: ActivityPolicy,
+    *,
+    matcher: VacancyCompatibilityMatcher | None = None,
 ) -> Iterator[VacancyViewOutcome]:
     yielded = False
     for index, url in enumerate(vacancy_urls, start=1):
@@ -61,6 +70,64 @@ def view_vacancies(
             )
             description_visible = description.count() > 0 and description.first.is_visible()
             content_recognized = recognized and description_visible
+            assessment = None
+            if content_recognized and matcher is not None:
+                assessment = matcher.evaluate(
+                    VacancyDocument(
+                        title=vacancy_title,
+                        description=description.first.inner_text(),
+                        skills=tuple(page.locator(VACANCY_SKILL).all_inner_texts()),
+                    )
+                )
+                if assessment.applied:
+                    LOGGER.info(
+                        "Соответствие вакансии %s из %s «%s»: %s%% (порог %s%%).",
+                        index,
+                        len(vacancy_urls),
+                        vacancy_title,
+                        assessment.score,
+                        policy.match_threshold,
+                    )
+                    if not assessment.accepted:
+                        yielded = True
+                        yield VacancyViewOutcome(
+                            url=canonical,
+                            result=ActivityResult(
+                                action=ActivityKind.VIEW_VACANCY,
+                                status=ActivityStatus.SKIPPED,
+                                detail=(
+                                    "Вакансия не прошла проверку соответствия и не просмотрена."
+                                ),
+                                metadata={
+                                    "match_evaluated": True,
+                                    "match_score": assessment.score,
+                                    "match_accepted": False,
+                                    "title_similarity": round(
+                                        assessment.title_similarity,
+                                        4,
+                                    ),
+                                    "bm25f_relevance": round(
+                                        assessment.bm25f_relevance,
+                                        4,
+                                    ),
+                                    "skills_coverage": round(
+                                        assessment.skills_coverage,
+                                        4,
+                                    ),
+                                    "lexical_similarity": round(
+                                        assessment.lexical_similarity,
+                                        4,
+                                    ),
+                                    "scrolls_completed": 0,
+                                },
+                            ),
+                        )
+                        continue
+                else:
+                    LOGGER.warning(
+                        "Сопоставление вакансии «%s» пропущено: текст резюме недоступен.",
+                        vacancy_title,
+                    )
             scrolls_completed = 0
             if description_visible:
                 LOGGER.info(
@@ -90,6 +157,17 @@ def view_vacancies(
                     metadata={
                         "description_visible": description_visible,
                         "scrolls_completed": scrolls_completed,
+                        "match_evaluated": assessment is not None and assessment.applied,
+                        "match_score": (
+                            assessment.score
+                            if assessment is not None and assessment.applied
+                            else None
+                        ),
+                        "match_accepted": (
+                            assessment.accepted
+                            if assessment is not None and assessment.applied
+                            else None
+                        ),
                     },
                 ),
             )

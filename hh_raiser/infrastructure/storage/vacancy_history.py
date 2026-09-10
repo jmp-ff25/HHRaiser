@@ -23,7 +23,7 @@ def vacancy_id_from_url(url: str) -> str | None:
 
 
 class VacancyHistory:
-    """SQLite-backed exact set of discovered and successfully viewed vacancies."""
+    """SQLite history of discovered, evaluated, and successfully viewed vacancies."""
 
     def __init__(self, path: Path, *, randomizer: random.Random | None = None) -> None:
         self.path = path
@@ -55,6 +55,10 @@ class VacancyHistory:
                     last_viewed_at TEXT,
                     view_count INTEGER NOT NULL DEFAULT 0,
                     last_viewed_generation INTEGER,
+                    last_evaluated_at TEXT,
+                    last_evaluated_generation INTEGER,
+                    last_match_score INTEGER,
+                    last_match_accepted INTEGER,
                     reserved_generation INTEGER,
                     reserved_until TEXT
                 );
@@ -73,6 +77,18 @@ class VacancyHistory:
                 ON vacancies(reserved_until);
                 """
             )
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(vacancies)").fetchall()
+            }
+            migrations = {
+                "last_evaluated_at": "TEXT",
+                "last_evaluated_generation": "INTEGER",
+                "last_match_score": "INTEGER",
+                "last_match_accepted": "INTEGER",
+            }
+            for column, definition in migrations.items():
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE vacancies ADD COLUMN {column} {definition}")
 
     @property
     def generation(self) -> int:
@@ -135,10 +151,11 @@ class VacancyHistory:
                 FROM vacancies
                 WHERE vacancy_id IN ({placeholders})
                   AND (last_viewed_generation IS NULL OR last_viewed_generation <> ?)
+                  AND (last_evaluated_generation IS NULL OR last_evaluated_generation <> ?)
                   AND (last_viewed_at IS NULL OR last_viewed_at <= ?)
                   AND (reserved_until IS NULL OR reserved_until <= ?)
                 """,
-                (*id_to_url, generation, cutoff, now_text),
+                (*id_to_url, generation, generation, cutoff, now_text),
             ).fetchall()
             candidate_ids = [str(row[0]) for row in rows]
             self._random.shuffle(candidate_ids)
@@ -171,6 +188,30 @@ class VacancyHistory:
                 WHERE vacancy_id = ?
                 """,
                 (datetime.now(MOSCOW).isoformat(), generation, vacancy_id),
+            )
+
+    def mark_evaluated(self, url: str, *, score: int, accepted: bool) -> None:
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            generation = self._read_generation(connection)
+            connection.execute(
+                """
+                UPDATE vacancies
+                SET last_evaluated_at = ?, last_evaluated_generation = ?,
+                    last_match_score = ?, last_match_accepted = ?,
+                    reserved_generation = NULL, reserved_until = NULL
+                WHERE vacancy_id = ?
+                """,
+                (
+                    datetime.now(MOSCOW).isoformat(),
+                    generation,
+                    score,
+                    int(accepted),
+                    vacancy_id,
+                ),
             )
 
     def release(self, url: str) -> None:

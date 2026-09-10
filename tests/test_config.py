@@ -19,7 +19,8 @@ class ConfigTests(unittest.TestCase):
                 "unique_vacancy_limit = 750\n"
                 "revisit_after_days = 21\n"
                 "search_pages_per_cycle = 30\n"
-                "reset_on_exhaustion = false\n",
+                "reset_on_exhaustion = false\n"
+                "[matching]\nenabled = false\nthreshold = 67\n",
                 encoding="utf-8",
             )
 
@@ -31,6 +32,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.revisit_after_days, 21)
         self.assertEqual(config.search_pages_per_cycle, 30)
         self.assertFalse(config.reset_on_exhaustion)
+        self.assertFalse(config.vacancy_matching)
+        self.assertEqual(config.match_threshold, 67)
 
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:

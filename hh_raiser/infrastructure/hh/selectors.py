@@ -8,6 +8,7 @@ VACANCY_TITLE_LINK = '[data-qa="serp-item__title"]'
 PAGINATION_LINK = 'a[data-qa^="pager-"]'
 VACANCY_HEADING = '[data-qa="vacancy-title"]'
 VACANCY_DESCRIPTION = '[data-qa="vacancy-description"]'
+VACANCY_SKILL = '[data-qa="skills-element"]'
 RESPOND_BUTTON = '[data-qa*="vacancy-response"]'
 
 RESUME_CARD = '[data-qa="resume"]'
