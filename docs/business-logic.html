@@ -120,7 +120,14 @@
     .node-subtitle { fill: var(--muted); font-size: 13px; pointer-events: none; }
     .edge { fill: none; stroke: var(--line); stroke-width: 2; marker-end: url(#arrow); }
     .edge.primary { stroke: var(--accent); stroke-width: 3; }
-    .edge-label { fill: var(--muted); font-size: 12px; font-weight: 600; }
+    .edge-label {
+      fill: var(--muted);
+      stroke: var(--surface-2);
+      stroke-width: 7px;
+      paint-order: stroke;
+      font-size: 12px;
+      font-weight: 600;
+    }
     aside {
       padding: 24px;
       border-left: 1px solid var(--border);
@@ -205,22 +212,24 @@
             <path class="edge" d="M500 585 H570"></path>
             <path class="edge" d="M850 585 H920"></path>
             <path class="edge" d="M1200 585 H1270"></path>
-            <path class="edge" d="M1355 650 V705 H1200"></path>
+            <path class="edge" d="M1355 650 V750 H1200"></path>
             <path class="edge" d="M920 750 H850"></path>
             <path class="edge primary" d="M570 750 H500"></path>
+            <path class="edge" d="M1060 810 V832 H320 V795"></path>
             <path class="edge primary" d="M320 795 V945 H385"></path>
             <path class="edge" d="M665 945 H735"></path>
             <path class="edge primary" d="M1015 945 H1080"></path>
-            <path class="edge primary" d="M1220 895 V840 H140 V120 H95"></path>
-            <path class="edge" d="M1220 995 V1025 H1360"></path>
+            <path class="edge primary" d="M1360 945 H1445 V331 H1325"></path>
+            <path class="edge" d="M1220 999 V1002 H1240"></path>
 
-            <text class="edge-label" x="950" y="316">в каждом обороте</text>
-            <text class="edge-label" x="674" y="316">по расписанию</text>
+            <text class="edge-label" x="976" y="314" text-anchor="middle">в каждом обороте</text>
+            <text class="edge-label" x="602" y="314" text-anchor="middle">по расписанию</text>
             <text class="edge-label" x="355" y="474">если наступило время</text>
-            <text class="edge-label" x="1215" y="735">score ≥ порога</text>
-            <text class="edge-label" x="862" y="737">не просмотрена в этом цикле</text>
-            <text class="edge-label" x="1229" y="883">браузер открыт</text>
-            <text class="edge-label" x="1240" y="1018">браузер закрыт</text>
+            <text class="edge-label" x="1275" y="738" text-anchor="middle">доступна</text>
+            <text class="edge-label" x="885" y="738" text-anchor="middle">score ≥ порога</text>
+            <text class="edge-label" x="690" y="823" text-anchor="middle">ниже порога: сохранить только оценку</text>
+            <text class="edge-label" x="1402" y="690" text-anchor="middle">браузер открыт</text>
+            <text class="edge-label" x="1232" y="1027" text-anchor="end">закрыт</text>
 
             <g class="node" data-node="start" tabindex="0" role="button" aria-label="Загрузка настроек" transform="translate(95 78)">
               <rect width="210" height="84" rx="42"></rect>
@@ -310,7 +319,7 @@
               <text class="node-title" x="140" y="49" text-anchor="middle">Браузер открыт?</text>
               <text class="node-subtitle" x="140" y="70" text-anchor="middle">ожидание прерываемо</text>
             </g>
-            <g class="node end" data-node="stop" tabindex="0" role="button" aria-label="Завершение" transform="translate(1240 995)">
+            <g class="node end" data-node="stop" tabindex="0" role="button" aria-label="Завершение" transform="translate(1240 970)">
               <rect width="200" height="64" rx="32"></rect>
               <text class="node-title" x="100" y="39" text-anchor="middle">Завершить</text>
             </g>
@@ -323,10 +332,12 @@
       <div id="details"></div>
       <div class="callout">
         <strong>Что происходит при исчерпании?</strong><br>
-        Программа продолжает работать. При включённом <code>reset_on_exhaustion</code>
-        она начинает новый логический проход, не удаляя аналитику. Но недавно
-        просмотренные вакансии остаются недоступны до истечения
-        <code>revisit_after_days</code>, поэтому возможен цикл без просмотров.
+        HH не сообщает приложению об исчерпании напрямую. Приложение считает запрос
+        исчерпанным, когда проверило все наблюдаемые страницы его пагинации и не
+        нашло на них допустимых по истории кандидатов. Новый логический проход
+        начинается только после исчерпания всех настроенных запросов. Программа
+        продолжает работать, но до истечения <code>revisit_after_days</code> возможен
+        цикл без просмотров.
       </div>
       <footer>Самодостаточный документ · внешние скрипты, шрифты и сетевые запросы не используются.</footer>
     </aside>
@@ -398,7 +409,7 @@
         title: "Допуск по истории",
         text: "SQLite атомарно резервирует кандидатов, которые ещё не оценивались и не просматривались в текущем логическом проходе.",
         tags: ["generation", "lease"],
-        items: ["Также должен истечь revisit_after_days", "Ошибка освобождает резерв", "Лимит уникальности считается глобально, а не отдельно по запросу"]
+        items: ["Также должен истечь revisit_after_days", "Ошибка освобождает резерв", "Исчерпание запроса выводится из полного обхода наблюдаемой пагинации", "Лимит уникальности считается глобально, а не отдельно по запросу"]
       },
       matching: {
         title: "Объяснимая оценка соответствия",
