@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from hh_raiser.domain.search_filters import SearchFilters
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class ActivityPolicy:
     vacancy_view_seconds: float = 12.0
     vacancy_matching: bool = True
     match_threshold: int = 55
+    search_filters: SearchFilters = field(default_factory=SearchFilters)
 
     def __post_init__(self) -> None:
         if not 0 <= self.vacancies_per_cycle <= 25:

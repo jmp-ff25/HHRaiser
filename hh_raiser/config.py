@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import configparser
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
+
+from hh_raiser.domain.search_filters import ExperienceLevel, SearchField, SearchFilters
 
 DEFAULT_CONFIG_PATH = Path("hh-config.ini")
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
@@ -25,6 +28,7 @@ class FileConfig:
     reset_on_exhaustion: bool | None = None
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
+    search_filters: SearchFilters = field(default_factory=SearchFilters)
 
 
 @dataclass(frozen=True)
@@ -37,10 +41,25 @@ class RuntimeSettings:
     reset_on_exhaustion: bool
     vacancy_matching: bool
     match_threshold: int
+    search_filters: SearchFilters
 
 
 def parse_search_queries(value: str, *, separator: str = "\n") -> tuple[str, ...]:
     return tuple(dict.fromkeys(item.strip() for item in value.split(separator) if item.strip()))
+
+
+def parse_enum_values[EnumValue: StrEnum](
+    value: str,
+    enum_type: type[EnumValue],
+    *,
+    option_name: str,
+) -> tuple[EnumValue, ...]:
+    values = parse_search_queries(value)
+    try:
+        return tuple(dict.fromkeys(enum_type(item) for item in values))
+    except ValueError as error:
+        allowed = ", ".join(item.value for item in enum_type)
+        raise ValueError(f"{option_name}: допустимые значения — {allowed}") from error
 
 
 def _validate_range(name: str, value: int, *, minimum: int, maximum: int) -> int:
@@ -68,8 +87,23 @@ def read_file_config(path: Path) -> FileConfig:
         reset_on_exhaustion = parser.getboolean("activity", "reset_on_exhaustion", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
+        search_filters = SearchFilters(
+            excluded_words=parse_search_queries(
+                parser.get("search_filters", "excluded_words", fallback="")
+            ),
+            search_fields=parse_enum_values(
+                parser.get("search_filters", "search_fields", fallback=""),
+                SearchField,
+                option_name="search_filters.search_fields",
+            ),
+            experience=parse_enum_values(
+                parser.get("search_filters", "experience", fallback=""),
+                ExperienceLevel,
+                option_name="search_filters.experience",
+            ),
+        )
     except ValueError as error:
-        raise ValueError(f"Некорректное значение в INI-файле настроек: {path}") from error
+        raise ValueError(f"Некорректное значение в INI-файле настроек {path}: {error}") from error
     return FileConfig(
         resume_title=resume_title,
         search_queries=search_queries,
@@ -79,6 +113,7 @@ def read_file_config(path: Path) -> FileConfig:
         reset_on_exhaustion=reset_on_exhaustion,
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
+        search_filters=search_filters,
     )
 
 
@@ -178,4 +213,5 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             minimum=0,
             maximum=100,
         ),
+        search_filters=file_config.search_filters,
     )

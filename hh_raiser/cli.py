@@ -295,6 +295,7 @@ def run_browser_context(
             vacancy_view_seconds=args.vacancy_view_seconds,
             vacancy_matching=args.vacancy_matching,
             match_threshold=args.match_threshold,
+            search_filters=args.search_filters,
         )
         report_path = args.profile_dir.parent / "activity-events.jsonl"
         orchestrator = ActivityOrchestrator(
@@ -431,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
     args.reset_on_exhaustion = settings.reset_on_exhaustion
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
+    args.search_filters = settings.search_filters
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:
         generation = args.vacancy_history.advance_generation()

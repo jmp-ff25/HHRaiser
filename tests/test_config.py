@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from hh_raiser.config import read_file_config, resolve_runtime_settings
+from hh_raiser.domain.search_filters import ExperienceLevel, SearchField
 
 
 class ConfigTests(unittest.TestCase):
@@ -20,6 +21,10 @@ class ConfigTests(unittest.TestCase):
                 "revisit_after_days = 21\n"
                 "search_pages_per_cycle = 30\n"
                 "reset_on_exhaustion = false\n"
+                "[search_filters]\n"
+                "excluded_words =\n    senior\n    аналитик\n"
+                "search_fields =\n    name\n"
+                "experience =\n    between1And3\n    between3And6\n"
                 "[matching]\nenabled = false\nthreshold = 67\n",
                 encoding="utf-8",
             )
@@ -34,6 +39,26 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.reset_on_exhaustion)
         self.assertFalse(config.vacancy_matching)
         self.assertEqual(config.match_threshold, 67)
+        self.assertEqual(config.search_filters.excluded_words, ("senior", "аналитик"))
+        self.assertEqual(config.search_filters.search_fields, (SearchField.VACANCY_NAME,))
+        self.assertEqual(
+            config.search_filters.experience,
+            (
+                ExperienceLevel.BETWEEN_ONE_AND_THREE,
+                ExperienceLevel.BETWEEN_THREE_AND_SIX,
+            ),
+        )
+
+    def test_rejects_unknown_search_filter_value(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Разработчик\n[search_filters]\nsearch_fields = everywhere\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "search_filters.search_fields"):
+                read_file_config(path)
 
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:

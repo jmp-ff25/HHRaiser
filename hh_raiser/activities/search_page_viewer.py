@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
@@ -9,9 +9,9 @@ from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
+from hh_raiser.infrastructure.hh.search_url import build_search_url
 from hh_raiser.infrastructure.hh.selectors import (
     PAGINATION_LINK,
-    SEARCH_URL,
     VACANCY_CARD,
     VACANCY_TITLE_LINK,
 )
@@ -38,7 +38,11 @@ def view_search_page(
     page: Page, policy: ActivityPolicy, *, query: str, search_page: int
 ) -> tuple[ActivityResult, list[str], int]:
     try:
-        search_url = f"{SEARCH_URL}?{urlencode({'text': query, 'page': search_page})}"
+        search_url = build_search_url(
+            query=query,
+            page=search_page,
+            filters=policy.search_filters,
+        )
         page.goto(search_url, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
         cards = page.locator(VACANCY_CARD)
