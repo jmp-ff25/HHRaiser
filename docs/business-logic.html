@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HHRaiser — бизнес-логика</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-2: #eef2f6;
+      --text: #17202a;
+      --muted: #607080;
+      --line: #aeb9c5;
+      --border: #d7dee6;
+      --accent: #c92635;
+      --accent-soft: #f9e8ea;
+      --success: #16794b;
+      --warning: #a15c00;
+      --focus: #1769aa;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #11161c;
+        --surface: #19212a;
+        --surface-2: #222d38;
+        --text: #edf2f7;
+        --muted: #a8b6c5;
+        --line: #657586;
+        --border: #334252;
+        --accent: #ff5a68;
+        --accent-soft: #44232a;
+        --success: #63d49b;
+        --warning: #f0b35b;
+        --focus: #70b8ef;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 Inter, "Segoe UI", system-ui, sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 22px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+    header p { margin: 4px 0 0; color: var(--muted); }
+    .status {
+      white-space: nowrap;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--success);
+      font-size: 13px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 350px;
+      min-height: calc(100vh - 91px);
+    }
+    .workspace { min-width: 0; padding: 18px; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 11px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button:hover, button:focus-visible { border-color: var(--focus); outline: none; }
+    .hint { margin-left: auto; color: var(--muted); font-size: 13px; }
+    .canvas {
+      height: calc(100vh - 156px);
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background-color: var(--surface);
+      cursor: grab;
+    }
+    .canvas.dragging { cursor: grabbing; }
+    svg { width: 100%; height: 100%; user-select: none; }
+    .lane { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+    .lane-title { fill: var(--muted); font-size: 15px; font-weight: 700; }
+    .node rect, .node polygon {
+      fill: var(--surface);
+      stroke: var(--line);
+      stroke-width: 2;
+      transition: stroke .15s ease, stroke-width .15s ease;
+    }
+    .node.action rect { stroke: var(--accent); }
+    .node.decision polygon { stroke: var(--warning); }
+    .node.end rect { stroke: var(--success); }
+    .node:hover rect, .node:hover polygon,
+    .node.active rect, .node.active polygon,
+    .node:focus-visible rect, .node:focus-visible polygon {
+      stroke: var(--focus);
+      stroke-width: 4;
+      outline: none;
+    }
+    .node { cursor: pointer; }
+    .node-title { fill: var(--text); font-size: 17px; font-weight: 700; pointer-events: none; }
+    .node-subtitle { fill: var(--muted); font-size: 13px; pointer-events: none; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 2; marker-end: url(#arrow); }
+    .edge.primary { stroke: var(--accent); stroke-width: 3; }
+    .edge-label { fill: var(--muted); font-size: 12px; font-weight: 600; }
+    aside {
+      padding: 24px;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      overflow: auto;
+    }
+    aside h2 { margin: 0 0 8px; font-size: 21px; }
+    aside h3 { margin: 22px 0 6px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    aside p { margin: 0; }
+    aside ul { margin: 7px 0 0; padding-left: 19px; }
+    aside code { background: var(--surface-2); border-radius: 5px; padding: 2px 5px; }
+    .tag {
+      display: inline-block;
+      margin: 0 5px 6px 0;
+      padding: 3px 7px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .callout {
+      margin-top: 22px;
+      padding: 12px;
+      border-left: 3px solid var(--warning);
+      background: var(--surface-2);
+      color: var(--muted);
+    }
+    footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      aside { border: 0; border-top: 1px solid var(--border); }
+      .canvas { height: 68vh; }
+      .hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>HHRaiser: бизнес-логика одного непрерывного запуска</h1>
+      <p>Нажмите на любой блок, чтобы увидеть условия, результат и связанные настройки.</p>
+    </div>
+    <div class="status">Работает без интернета</div>
+  </header>
+
+  <main>
+    <section class="workspace" aria-label="Интерактивная блок-схема">
+      <div class="toolbar">
+        <button type="button" data-zoom="in" aria-label="Увеличить">Увеличить</button>
+        <button type="button" data-zoom="out" aria-label="Уменьшить">Уменьшить</button>
+        <button type="button" id="fit">Показать всё</button>
+        <span class="hint">Колесо — масштаб · перетаскивание — перемещение</span>
+      </div>
+      <div class="canvas" id="canvas">
+        <svg id="diagram" viewBox="0 0 1500 1080" role="img" aria-labelledby="svg-title svg-desc">
+          <title id="svg-title">Бизнес-логика HHRaiser</title>
+          <desc id="svg-desc">От запуска и проверки поднятия резюме до отбора вакансий, сохранения истории и ожидания следующего события.</desc>
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="context-stroke"></path>
+            </marker>
+          </defs>
+
+          <g id="viewport">
+            <rect class="lane" x="25" y="25" width="1450" height="180" rx="14"></rect>
+            <text class="lane-title" x="48" y="55">1 · ЗАПУСК И СЕССИЯ</text>
+            <rect class="lane" x="25" y="225" width="1450" height="235" rx="14"></rect>
+            <text class="lane-title" x="48" y="255">2 · ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА РЕЗЮМЕ</text>
+            <rect class="lane" x="25" y="480" width="1450" height="370" rx="14"></rect>
+            <text class="lane-title" x="48" y="510">3 · ДОПОЛНИТЕЛЬНАЯ АКТИВНОСТЬ И ВАКАНСИИ</text>
+            <rect class="lane" x="25" y="870" width="1450" height="180" rx="14"></rect>
+            <text class="lane-title" x="48" y="900">4 · ПЛАНИРОВАНИЕ И ЗАВЕРШЕНИЕ</text>
+
+            <path class="edge primary" d="M305 120 H375"></path>
+            <path class="edge primary" d="M655 120 H725"></path>
+            <path class="edge primary" d="M1005 120 H1075"></path>
+            <path class="edge primary" d="M1215 170 V285 H1175"></path>
+            <path class="edge primary" d="M1025 330 H930"></path>
+            <path class="edge" d="M650 330 H555"></path>
+            <path class="edge" d="M405 380 V540 H320"></path>
+            <path class="edge" d="M500 585 H570"></path>
+            <path class="edge" d="M850 585 H920"></path>
+            <path class="edge" d="M1200 585 H1270"></path>
+            <path class="edge" d="M1355 650 V705 H1200"></path>
+            <path class="edge" d="M920 750 H850"></path>
+            <path class="edge primary" d="M570 750 H500"></path>
+            <path class="edge primary" d="M320 795 V945 H385"></path>
+            <path class="edge" d="M665 945 H735"></path>
+            <path class="edge primary" d="M1015 945 H1080"></path>
+            <path class="edge primary" d="M1220 895 V840 H140 V120 H95"></path>
+            <path class="edge" d="M1220 995 V1025 H1360"></path>
+
+            <text class="edge-label" x="950" y="316">в каждом обороте</text>
+            <text class="edge-label" x="674" y="316">по расписанию</text>
+            <text class="edge-label" x="355" y="474">если наступило время</text>
+            <text class="edge-label" x="1215" y="735">score ≥ порога</text>
+            <text class="edge-label" x="862" y="737">не просмотрена в этом цикле</text>
+            <text class="edge-label" x="1229" y="883">браузер открыт</text>
+            <text class="edge-label" x="1240" y="1018">браузер закрыт</text>
+
+            <g class="node" data-node="start" tabindex="0" role="button" aria-label="Загрузка настроек" transform="translate(95 78)">
+              <rect width="210" height="84" rx="42"></rect>
+              <text class="node-title" x="105" y="36" text-anchor="middle">Запуск</text>
+              <text class="node-subtitle" x="105" y="58" text-anchor="middle">CLI + INI</text>
+            </g>
+            <g class="node" data-node="browser" tabindex="0" role="button" aria-label="Запуск браузера" transform="translate(375 78)">
+              <rect width="280" height="84" rx="10"></rect>
+              <text class="node-title" x="140" y="35" text-anchor="middle">Постоянный Chromium</text>
+              <text class="node-subtitle" x="140" y="58" text-anchor="middle">профиль и сохранённая сессия</text>
+            </g>
+            <g class="node decision" data-node="auth" tabindex="0" role="button" aria-label="Проверка авторизации" transform="translate(725 66)">
+              <polygon points="140,0 280,54 140,108 0,54"></polygon>
+              <text class="node-title" x="140" y="49" text-anchor="middle">Авторизация?</text>
+              <text class="node-subtitle" x="140" y="70" text-anchor="middle">CAPTCHA → владелец</text>
+            </g>
+            <g class="node" data-node="session" tabindex="0" role="button" aria-label="Рабочая сессия" transform="translate(1075 78)">
+              <rect width="280" height="84" rx="10"></rect>
+              <text class="node-title" x="140" y="35" text-anchor="middle">Рабочая сессия</text>
+              <text class="node-subtitle" x="140" y="58" text-anchor="middle">модальные окна закрываются</text>
+            </g>
+
+            <g class="node action" data-node="raise" tabindex="0" role="button" aria-label="Проверка поднятия резюме" transform="translate(1025 285)">
+              <rect width="300" height="92" rx="10"></rect>
+              <text class="node-title" x="150" y="36" text-anchor="middle">Проверить поднятие</text>
+              <text class="node-subtitle" x="150" y="61" text-anchor="middle">нажать только если доступно</text>
+            </g>
+            <g class="node decision" data-node="refresh" tabindex="0" role="button" aria-label="Проверка времени обновления версии" transform="translate(650 276)">
+              <polygon points="140,0 280,54 140,108 0,54"></polygon>
+              <text class="node-title" x="140" y="48" text-anchor="middle">Пора обновить</text>
+              <text class="node-title" x="140" y="69" text-anchor="middle">версию резюме?</text>
+            </g>
+            <g class="node decision" data-node="activity_due" tabindex="0" role="button" aria-label="Проверка времени активности" transform="translate(275 276)">
+              <polygon points="140,0 280,54 140,108 0,54"></polygon>
+              <text class="node-title" x="140" y="48" text-anchor="middle">Пора выполнить</text>
+              <text class="node-title" x="140" y="69" text-anchor="middle">активность?</text>
+            </g>
+
+            <g class="node" data-node="rotation" tabindex="0" role="button" aria-label="Выбор запроса и страницы" transform="translate(140 540)">
+              <rect width="360" height="90" rx="10"></rect>
+              <text class="node-title" x="180" y="35" text-anchor="middle">Shuffle bag запросов и страниц</text>
+              <text class="node-subtitle" x="180" y="60" text-anchor="middle">без повторения страницы в одном проходе</text>
+            </g>
+            <g class="node" data-node="filters" tabindex="0" role="button" aria-label="Поиск с фильтрами HH" transform="translate(570 540)">
+              <rect width="280" height="90" rx="10"></rect>
+              <text class="node-title" x="140" y="35" text-anchor="middle">Поиск HH</text>
+              <text class="node-subtitle" x="140" y="60" text-anchor="middle">запрос + разрешённые фильтры</text>
+            </g>
+            <g class="node" data-node="discover" tabindex="0" role="button" aria-label="Сбор вакансий" transform="translate(920 540)">
+              <rect width="280" height="90" rx="10"></rect>
+              <text class="node-title" x="140" y="35" text-anchor="middle">Собрать ссылки</text>
+              <text class="node-subtitle" x="140" y="60" text-anchor="middle">канонический публичный ID</text>
+            </g>
+            <g class="node decision" data-node="unique" tabindex="0" role="button" aria-label="Проверка уникальности" transform="translate(1270 520)">
+              <polygon points="85,0 170,65 85,130 0,65"></polygon>
+              <text class="node-title" x="85" y="59" text-anchor="middle">Доступна</text>
+              <text class="node-title" x="85" y="80" text-anchor="middle">по истории?</text>
+            </g>
+            <g class="node decision" data-node="matching" tabindex="0" role="button" aria-label="Оценка соответствия" transform="translate(920 690)">
+              <polygon points="140,0 280,60 140,120 0,60"></polygon>
+              <text class="node-title" x="140" y="54" text-anchor="middle">Соответствие</text>
+              <text class="node-subtitle" x="140" y="77" text-anchor="middle">BM25F + навыки + лексика</text>
+            </g>
+            <g class="node action" data-node="view" tabindex="0" role="button" aria-label="Содержательный просмотр" transform="translate(570 705)">
+              <rect width="280" height="90" rx="10"></rect>
+              <text class="node-title" x="140" y="35" text-anchor="middle">Просмотр вакансии</text>
+              <text class="node-subtitle" x="140" y="60" text-anchor="middle">открытие · прокрутка · пауза</text>
+            </g>
+            <g class="node" data-node="history" tabindex="0" role="button" aria-label="Сохранение истории" transform="translate(140 705)">
+              <rect width="360" height="90" rx="10"></rect>
+              <text class="node-title" x="180" y="35" text-anchor="middle">SQLite-история и отчёт</text>
+              <text class="node-subtitle" x="180" y="60" text-anchor="middle">просмотр отмечается только после успеха</text>
+            </g>
+
+            <g class="node" data-node="review" tabindex="0" role="button" aria-label="Проверка резюме" transform="translate(385 903)">
+              <rect width="280" height="84" rx="10"></rect>
+              <text class="node-title" x="140" y="34" text-anchor="middle">Проверить резюме</text>
+              <text class="node-subtitle" x="140" y="58" text-anchor="middle">рекомендации без автоправок</text>
+            </g>
+            <g class="node" data-node="schedule" tabindex="0" role="button" aria-label="Расчёт следующего события" transform="translate(735 903)">
+              <rect width="280" height="84" rx="10"></rect>
+              <text class="node-title" x="140" y="34" text-anchor="middle">Ближайший таймер</text>
+              <text class="node-subtitle" x="140" y="58" text-anchor="middle">поднятие · активность · версия</text>
+            </g>
+            <g class="node decision" data-node="alive" tabindex="0" role="button" aria-label="Проверка окна браузера" transform="translate(1080 891)">
+              <polygon points="140,0 280,54 140,108 0,54"></polygon>
+              <text class="node-title" x="140" y="49" text-anchor="middle">Браузер открыт?</text>
+              <text class="node-subtitle" x="140" y="70" text-anchor="middle">ожидание прерываемо</text>
+            </g>
+            <g class="node end" data-node="stop" tabindex="0" role="button" aria-label="Завершение" transform="translate(1240 995)">
+              <rect width="200" height="64" rx="32"></rect>
+              <text class="node-title" x="100" y="39" text-anchor="middle">Завершить</text>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <aside aria-live="polite">
+      <div id="details"></div>
+      <div class="callout">
+        <strong>Что происходит при исчерпании?</strong><br>
+        Программа продолжает работать. При включённом <code>reset_on_exhaustion</code>
+        она начинает новый логический проход, не удаляя аналитику. Но недавно
+        просмотренные вакансии остаются недоступны до истечения
+        <code>revisit_after_days</code>, поэтому возможен цикл без просмотров.
+      </div>
+      <footer>Самодостаточный документ · внешние скрипты, шрифты и сетевые запросы не используются.</footer>
+    </aside>
+  </main>
+
+  <script>
+    const content = {
+      start: {
+        title: "Загрузка настроек",
+        text: "CLI-параметры объединяются с локальными INI-настройками; CLI имеет приоритет.",
+        tags: ["config.py", "hh-config.ini"],
+        items: ["Название выбранного резюме", "Один или несколько поисковых запросов", "Фильтры, порог соответствия и интервалы"]
+      },
+      browser: {
+        title: "Постоянный Chromium",
+        text: "Playwright запускает профиль, в котором может сохраняться подтверждённая владельцем HH-сессия.",
+        tags: ["Playwright", "persistent context"],
+        items: ["Видимый или headless-режим", "Размер окна соответствует доступной области экрана", "Cookies не попадают в Git"]
+      },
+      auth: {
+        title: "Авторизация",
+        text: "Автоматически используется уже подтверждённая сессия. Код, CAPTCHA и дополнительную проверку проходит владелец.",
+        tags: ["без обхода CAPTCHA"],
+        items: ["Успех: профиль резюме распознан", "Требуется вмешательство: HH показывает проверку"]
+      },
+      session: {
+        title: "Рабочая сессия",
+        text: "Перед критическими действиями закрываются известные некритичные модальные окна, включая предложение hh PRO.",
+        tags: ["modal guard"],
+        items: ["Интерфейс остаётся главным источником результата", "Неизвестное перекрытие приводит к безопасному пропуску"]
+      },
+      raise: {
+        title: "Поднятие резюме",
+        text: "Состояние выбранного резюме проверяется в каждом обороте. Клик выполняется только при явно доступной кнопке.",
+        tags: ["обязательно", "cooldown"],
+        items: ["waiting: запомнить время следующего поднятия", "available: один защищённый клик", "unknown: отложить без повторного клика"]
+      },
+      refresh: {
+        title: "Обновление версии резюме",
+        text: "Необязательная функция выполняется по собственному интервалу и хранит состояние обратимого изменения.",
+        tags: ["--resume-index-refresh"],
+        items: ["Первое выполнение назначается сразу после запуска", "Следующее — через настроенный интервал", "Ошибки фиксируются в отчёте"]
+      },
+      activity_due: {
+        title: "Периодическая активность",
+        text: "Полный режим запускает поиск и просмотр по отдельному расписанию.",
+        tags: ["--full-activity"],
+        items: ["Интервал задаёт activity_interval_seconds", "Если обновление версии уже выполнялось, активность будет проверена в следующем обороте"]
+      },
+      rotation: {
+        title: "Shuffle bag",
+        text: "Запросы перемешиваются, а страницы каждого запроса выбираются случайно без повторения внутри текущего прохода.",
+        tags: ["VacancyRotation"],
+        items: ["Страница 0 сначала определяет размер пагинации", "Охват ведётся отдельно для каждого запроса", "Исчерпание определяется по всем известным запросам и страницам"]
+      },
+      filters: {
+        title: "Серверные фильтры HH",
+        text: "Поисковый URL строится только из явно поддерживаемых параметров.",
+        tags: ["excluded_words", "search_fields", "experience"],
+        items: ["Фильтры применяются на стороне поиска HH", "Локатор интерфейса подтверждает, что выдача распознана"]
+      },
+      discover: {
+        title: "Обнаружение вакансий",
+        text: "Из карточек извлекаются канонические ссылки и публичные идентификаторы без query-параметров.",
+        tags: ["public vacancy ID"],
+        items: ["Одна вакансия глобально дедуплицируется между запросами", "Связь вакансии с каждым запросом остаётся в истории"]
+      },
+      unique: {
+        title: "Допуск по истории",
+        text: "SQLite атомарно резервирует кандидатов, которые ещё не оценивались и не просматривались в текущем логическом проходе.",
+        tags: ["generation", "lease"],
+        items: ["Также должен истечь revisit_after_days", "Ошибка освобождает резерв", "Лимит уникальности считается глобально, а не отдельно по запросу"]
+      },
+      matching: {
+        title: "Объяснимая оценка соответствия",
+        text: "До прокрутки описание сравнивается с резюме. Итоговый score 0–100 — эвристическая оценка, не вероятность трудоустройства.",
+        tags: ["BM25F", "навыки", "лексика", "заголовок"],
+        items: ["score ниже порога: сохранить оценку и пропустить", "score не ниже порога: перейти к содержательному просмотру", "Модель работает локально без LLM"]
+      },
+      view: {
+        title: "Содержательный просмотр",
+        text: "Страница вакансии открывается, распознаются заголовок и описание, затем выполняются прокрутка и пауза.",
+        tags: ["без отклика"],
+        items: ["Название и score отражаются в логах", "Проект не отправляет отклики", "Нераспознанная страница получает unknown"]
+      },
+      history: {
+        title: "История и отчёт",
+        text: "Успешный просмотр и результат оценки записываются раздельно; база не очищается при новом проходе.",
+        tags: ["SQLite", "JSONL"],
+        items: ["view_count сохраняет долгосрочную аналитику", "Новое поколение меняет логический допуск", "Персональные тела сетевых ответов не сохраняются"]
+      },
+      review: {
+        title: "Проверка резюме",
+        text: "Приложение проверяет структуру и предлагает владельцу только содержательные правки.",
+        tags: ["без автоматических смысловых правок"],
+        items: ["Рекомендация не равна автоматическому изменению", "Результат добавляется в отчёт активности"]
+      },
+      schedule: {
+        title: "Планирование следующего события",
+        text: "Выбирается ближайшее из времени поднятия, активности и обновления версии резюме.",
+        tags: ["scheduler"],
+        items: ["Ожидание разбито на короткие проверки", "Системные часы сверяются периодически", "Ctrl+C обрабатывается как штатная остановка"]
+      },
+      alive: {
+        title: "Контроль браузера",
+        text: "Во время ожидания приложение следит за закрытием страницы и запросом остановки.",
+        tags: ["graceful shutdown"],
+        items: ["Окно закрыто: завершиться без перезапуска", "Флаг перезапуска должен быть задан явно", "Окно открыто: вернуться к обязательной проверке"]
+      },
+      stop: {
+        title: "Штатное завершение",
+        text: "Контекст Playwright закрывается тихо, локальные данные и аналитика остаются для следующего запуска.",
+        tags: ["Ctrl+C", "browser close"],
+        items: ["Автоматического отклика нет", "Самопроизвольный перезапуск по умолчанию отключён"]
+      }
+    };
+
+    const details = document.querySelector("#details");
+    const nodes = [...document.querySelectorAll(".node")];
+
+    function selectNode(id) {
+      const item = content[id];
+      if (!item) return;
+      nodes.forEach(node => node.classList.toggle("active", node.dataset.node === id));
+      details.innerHTML = `
+        <h2>${item.title}</h2>
+        <p>${item.text}</p>
+        <h3>Связанные понятия</h3>
+        <div>${item.tags.map(tag => `<span class="tag">${tag}</span>`).join("")}</div>
+        <h3>Правила</h3>
+        <ul>${item.items.map(value => `<li>${value}</li>`).join("")}</ul>`;
+    }
+
+    nodes.forEach(node => {
+      node.addEventListener("click", () => selectNode(node.dataset.node));
+      node.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectNode(node.dataset.node);
+        }
+      });
+    });
+
+    const svg = document.querySelector("#diagram");
+    const canvas = document.querySelector("#canvas");
+    let viewBox = { x: 0, y: 0, width: 1500, height: 1080 };
+    let dragging = false;
+    let lastPoint = null;
+
+    function applyViewBox() {
+      svg.setAttribute("viewBox", `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+    }
+
+    function zoom(factor, centerX = viewBox.x + viewBox.width / 2, centerY = viewBox.y + viewBox.height / 2) {
+      const width = Math.min(2200, Math.max(650, viewBox.width * factor));
+      const height = width * 1080 / 1500;
+      const rx = (centerX - viewBox.x) / viewBox.width;
+      const ry = (centerY - viewBox.y) / viewBox.height;
+      viewBox = { x: centerX - width * rx, y: centerY - height * ry, width, height };
+      applyViewBox();
+    }
+
+    document.querySelector('[data-zoom="in"]').addEventListener("click", () => zoom(.82));
+    document.querySelector('[data-zoom="out"]').addEventListener("click", () => zoom(1.22));
+    document.querySelector("#fit").addEventListener("click", () => {
+      viewBox = { x: 0, y: 0, width: 1500, height: 1080 };
+      applyViewBox();
+    });
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+      const point = svg.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      const local = point.matrixTransform(svg.getScreenCTM().inverse());
+      zoom(event.deltaY > 0 ? 1.12 : .88, local.x, local.y);
+    }, { passive: false });
+    canvas.addEventListener("pointerdown", event => {
+      if (event.target.closest(".node")) return;
+      dragging = true;
+      lastPoint = { x: event.clientX, y: event.clientY };
+      canvas.classList.add("dragging");
+      canvas.setPointerCapture(event.pointerId);
+    });
+    canvas.addEventListener("pointermove", event => {
+      if (!dragging) return;
+      const scaleX = viewBox.width / canvas.clientWidth;
+      const scaleY = viewBox.height / canvas.clientHeight;
+      viewBox.x -= (event.clientX - lastPoint.x) * scaleX;
+      viewBox.y -= (event.clientY - lastPoint.y) * scaleY;
+      lastPoint = { x: event.clientX, y: event.clientY };
+      applyViewBox();
+    });
+    canvas.addEventListener("pointerup", () => {
+      dragging = false;
+      canvas.classList.remove("dragging");
+    });
+
+    selectNode("start");
+  </script>
+</body>
+</html>
