@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-TOKEN_PATTERN = re.compile(r"[a-zа-яё0-9][a-zа-яё0-9+#.\-]{1,}", re.IGNORECASE)
+TOKEN_PATTERN = re.compile(r"[a-zа-яё0-9][a-zа-яё0-9+#.]{1,}", re.IGNORECASE)
 SPACE_PATTERN = re.compile(r"\s+")
 
 STOP_WORDS = frozenset(

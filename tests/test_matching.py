@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from hh_raiser.domain.matching import VacancyCompatibilityMatcher, VacancyDocument
+from hh_raiser.domain.matching import (
+    VacancyCompatibilityMatcher,
+    VacancyDocument,
+    tokenize,
+)
 
 
 class VacancyCompatibilityMatcherTests(unittest.TestCase):
@@ -54,3 +58,6 @@ class VacancyCompatibilityMatcherTests(unittest.TestCase):
 
         self.assertTrue(assessment.accepted)
         self.assertFalse(assessment.applied)
+
+    def test_hyphen_does_not_hide_shared_title_terms(self) -> None:
+        self.assertEqual(tokenize("Python-разработчик"), ["python", "разработчик"])
