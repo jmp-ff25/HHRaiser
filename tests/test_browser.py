@@ -38,7 +38,17 @@ class BrowserTests(unittest.TestCase):
 
         self.assertTrue(wait_for_page_close(page, 300))
         self.assertEqual(page.event, "close")
-        self.assertEqual(page.timeout, 300_000)
+        self.assertEqual(page.timeout, 250)
+
+    def test_stop_request_interrupts_wait_without_playwright_call(self) -> None:
+        class OpenPage:
+            def is_closed(self) -> bool:
+                return False
+
+            def wait_for_event(self, *_args: object, **_kwargs: object) -> None:
+                raise AssertionError("wait_for_event must not be called")
+
+        self.assertTrue(wait_for_page_close(OpenPage(), 300, stop_requested=lambda: True))
 
     def test_read_page_state_checks_button_without_implicit_playwright_wait(self) -> None:
         class Button:

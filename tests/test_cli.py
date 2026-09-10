@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import signal
 import unittest
 from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
 
-from hh_raiser.cli import build_parser, log_activity_results
+from hh_raiser.cli import build_parser, graceful_interrupt, log_activity_results
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.logging_config import configure_logging
 
 
 class CliTests(unittest.TestCase):
+    def test_ctrl_c_requests_graceful_shutdown(self) -> None:
+        with graceful_interrupt() as requested:
+            signal.raise_signal(signal.SIGINT)
+
+        self.assertTrue(requested.is_set())
+
     def test_profession_is_not_hardcoded_in_cli_defaults(self) -> None:
         args = build_parser().parse_args([])
 

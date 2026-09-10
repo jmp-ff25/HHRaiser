@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,7 @@ _CLOSED_PLAYWRIGHT_ERROR_MARKERS = (
     "connection closed while reading from the driver",
 )
 _DOM_RECHECK_INTERVAL_MS = 1_000
+_PAGE_CLOSE_POLL_SECONDS = 0.25
 
 
 def choose_login_action(evidence: LoginEvidence) -> str:
@@ -255,12 +257,27 @@ def is_closed_playwright_error(error: BaseException) -> bool:
     )
 
 
-def wait_for_page_close(page: Page, timeout_seconds: float) -> bool:
-    """Keep Playwright responsive while waiting and report a user-closed page."""
-    if page.is_closed():
-        return True
-    try:
-        page.wait_for_event("close", timeout=max(1, timeout_seconds * 1_000))
-        return True
-    except PlaywrightTimeoutError:
-        return page.is_closed()
+def wait_for_page_close(
+    page: Page,
+    timeout_seconds: float,
+    *,
+    stop_requested: Callable[[], bool] | None = None,
+) -> bool:
+    """Keep Playwright responsive while waiting and report any requested stop."""
+    deadline = time.monotonic() + max(0, timeout_seconds)
+    while True:
+        if stop_requested is not None and stop_requested():
+            return True
+        if page.is_closed():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            page.wait_for_event(
+                "close",
+                timeout=max(1, min(_PAGE_CLOSE_POLL_SECONDS, remaining) * 1_000),
+            )
+            return True
+        except PlaywrightTimeoutError:
+            continue

@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import signal
 import subprocess
 import sys
-import time
+import threading
 from collections import Counter
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -37,6 +40,22 @@ from hh_raiser.service import run_cycle
 
 class BrowserClosedDuringWait(RuntimeError):
     pass
+
+
+@contextmanager
+def graceful_interrupt() -> Iterator[threading.Event]:
+    """Turn Ctrl+C into a cooperative shutdown request."""
+    requested = threading.Event()
+    previous_handler = signal.getsignal(signal.SIGINT)
+
+    def request_stop(_signum: int, _frame: object) -> None:
+        requested.set()
+
+    signal.signal(signal.SIGINT, request_stop)
+    try:
+        yield requested
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 def log_activity_results(results: list[ActivityResult]) -> None:
@@ -229,7 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
+def run_browser_context(
+    playwright: object,
+    args: argparse.Namespace,
+    *,
+    stop_requested: Callable[[], bool] | None = None,
+) -> None:
+    should_stop = stop_requested or (lambda: False)
     LOGGER.info("Запускаю Chromium...")
     context = playwright.chromium.launch_persistent_context(
         str(args.profile_dir),
@@ -243,7 +268,6 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
-    interrupted = False
     try:
         login_if_needed(page, args)
         minimum_cooldown = timedelta(hours=args.minimum_cooldown_hours)
@@ -271,6 +295,8 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
         resume_refresh_interval = timedelta(seconds=args.resume_index_refresh_seconds)
         next_resume_refresh_at = datetime.now(MOSCOW) if resume_refresh_enabled else None
         while True:
+            if should_stop():
+                return
             next_at = run_cycle(
                 page,
                 resume_title=args.resume_title,
@@ -280,6 +306,8 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
                 minimum_cooldown=minimum_cooldown,
                 page_refresh_seconds=args.page_refresh_seconds,
             )
+            if should_stop():
+                return
             if args.full_activity and args.dry_run:
                 LOGGER.info("--dry-run: дополнительные действия просмотра пропущены.")
             if args.resume_index_refresh and args.dry_run:
@@ -339,19 +367,21 @@ def run_browser_context(playwright: object, args: argparse.Namespace) -> None:
                 datetime.now(MOSCOW) + timedelta(seconds=wait_seconds),
                 buffer_seconds=0,
                 poll_seconds=min(poll_intervals),
-                wait_for_stop=lambda seconds: wait_for_page_close(page, seconds),
+                wait_for_stop=lambda seconds: wait_for_page_close(
+                    page,
+                    seconds,
+                    stop_requested=should_stop,
+                ),
             )
             if not due:
+                if should_stop():
+                    return
                 if args.restart_browser_on_close:
                     raise BrowserClosedDuringWait
                 LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
                 return
-    except KeyboardInterrupt:
-        interrupted = True
-        raise
     finally:
-        if not interrupted:
-            close_context_quietly(context)
+        close_context_quietly(context)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -419,39 +449,42 @@ def main(argv: list[str] | None = None) -> int:
                 close_context_quietly(context)
         return 0
     args.profile_dir.mkdir(parents=True, exist_ok=True)
-    while True:
-        try:
-            LOGGER.info("Запускаю Playwright...")
-            with sync_playwright() as playwright:
-                run_browser_context(playwright, args)
-            return 0
-        except KeyboardInterrupt:
-            LOGGER.info("Остановлено пользователем.")
-            return 0
-        except BrowserClosedDuringWait:
-            retry_seconds = min(max(args.poll_seconds, 1), 30)
-            LOGGER.warning(
-                "Окно браузера закрыто; явный перезапуск через %s.",
-                format_wait_duration(retry_seconds),
-            )
+    with graceful_interrupt() as shutdown_requested:
+        while True:
             try:
-                time.sleep(retry_seconds)
+                LOGGER.info("Запускаю Playwright...")
+                with sync_playwright() as playwright:
+                    run_browser_context(
+                        playwright,
+                        args,
+                        stop_requested=shutdown_requested.is_set,
+                    )
+                if shutdown_requested.is_set():
+                    LOGGER.info("Остановлено пользователем.")
+                return 0
             except KeyboardInterrupt:
                 LOGGER.info("Остановлено пользователем.")
                 return 0
-        except PlaywrightError as error:
-            if not is_closed_playwright_error(error):
-                raise
-            if not args.restart_browser_on_close:
-                LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
-                return 0
-            retry_seconds = min(max(args.poll_seconds, 1), 30)
-            LOGGER.warning(
-                "Связь с браузером потеряна; перезапуск через %s.",
-                format_wait_duration(retry_seconds),
-            )
-            try:
-                time.sleep(retry_seconds)
-            except KeyboardInterrupt:
-                LOGGER.info("Остановлено пользователем.")
-                return 0
+            except BrowserClosedDuringWait:
+                retry_seconds = min(max(args.poll_seconds, 1), 30)
+                LOGGER.warning(
+                    "Окно браузера закрыто; явный перезапуск через %s.",
+                    format_wait_duration(retry_seconds),
+                )
+                if shutdown_requested.wait(retry_seconds):
+                    LOGGER.info("Остановлено пользователем.")
+                    return 0
+            except PlaywrightError as error:
+                if not is_closed_playwright_error(error):
+                    raise
+                if not args.restart_browser_on_close:
+                    LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
+                    return 0
+                retry_seconds = min(max(args.poll_seconds, 1), 30)
+                LOGGER.warning(
+                    "Связь с браузером потеряна; перезапуск через %s.",
+                    format_wait_duration(retry_seconds),
+                )
+                if shutdown_requested.wait(retry_seconds):
+                    LOGGER.info("Остановлено пользователем.")
+                    return 0
