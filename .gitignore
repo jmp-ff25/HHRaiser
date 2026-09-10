@@ -228,3 +228,8 @@ playwright-report/
 test-results/
 *.trace.zip
 *.har
+
+# Interactive architecture viewer
+architecture-viewer/node_modules/
+architecture-viewer/.vite/
+architecture-viewer/*.tsbuildinfo

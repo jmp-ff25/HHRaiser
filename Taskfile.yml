@@ -174,3 +174,33 @@ tasks:
     cmds:
       - uv lock --check
       - uv build
+
+  diagram-install:
+    desc: Установить зависимости интерактивной архитектурной схемы
+    dir: architecture-viewer
+    cmds:
+      - npm ci
+
+  diagram-dev:
+    desc: Запустить интерактивную схему в режиме разработки
+    dir: architecture-viewer
+    cmds:
+      - npm run dev
+
+  diagram-build:
+    desc: Собрать автономную интерактивную схему для офлайн-просмотра
+    dir: architecture-viewer
+    cmds:
+      - npm run build
+
+  diagram-test:
+    desc: Проверить модель интерактивной архитектурной схемы
+    dir: architecture-viewer
+    cmds:
+      - npm test
+
+  diagram-check:
+    desc: Проверить и собрать интерактивную архитектурную схему
+    cmds:
+      - task: diagram-test
+      - task: diagram-build
