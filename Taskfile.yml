@@ -1,0 +1,176 @@
+version: "3"
+
+vars:
+  CONFIG_FILE: hh-config.ini
+  CREDENTIALS_FILE: hh-credentials.ini
+  ACTIVITY_INTERVAL_SECONDS: "300"
+  RESUME_INDEX_REFRESH_SECONDS: "1800"
+  MATCH_THRESHOLD: "65"
+  COMMON_ARGS: >-
+    --config-file "{{.CONFIG_FILE}}"
+    --credentials-file "{{.CREDENTIALS_FILE}}"
+  ACTIVITY_ARGS: >-
+    --full-activity
+    --activity-interval-seconds {{.ACTIVITY_INTERVAL_SECONDS}}
+    --match-threshold {{.MATCH_THRESHOLD}}
+  RESUME_REFRESH_ARGS: >-
+    --resume-index-refresh
+    --resume-index-refresh-seconds {{.RESUME_INDEX_REFRESH_SECONDS}}
+
+tasks:
+  default:
+    desc: Показать доступные команды
+    cmds:
+      - task --list
+
+  install:
+    desc: Установить приложение, зависимости и Chromium
+    cmds:
+      - uv sync --locked
+      - uv run --locked playwright install chromium
+      - task: prepare-config
+
+  install-dev:
+    desc: Установить приложение с инструментами разработки и Chromium
+    cmds:
+      - uv sync --locked --extra dev
+      - uv run --locked playwright install chromium
+      - task: prepare-config
+
+  install-browser:
+    desc: Установить Chromium для Playwright
+    cmds:
+      - uv run --locked playwright install chromium
+
+  install-system-deps:
+    desc: Установить системные зависимости Chromium на Linux
+    platforms: [linux]
+    cmds:
+      - uv run --locked playwright install-deps chromium
+
+  prepare-config:
+    desc: Создать локальную конфигурацию из шаблона, если её ещё нет
+    env:
+      HH_TASK_CONFIG_FILE: "{{.CONFIG_FILE}}"
+    status:
+      - test -f "{{.CONFIG_FILE}}"
+    cmds:
+      - >-
+        uv run --locked python -c
+        "import os; from pathlib import Path;
+        source = Path('hh-config.example.ini');
+        target = Path(os.environ['HH_TASK_CONFIG_FILE']);
+        target.write_bytes(source.read_bytes())"
+
+  init-session:
+    desc: Открыть Chromium для первичной авторизации и сохранить сессию
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once --dry-run
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  check-login:
+    desc: Проверить учётные данные во временном профиле
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --check-login
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  raise:
+    desc: Непрерывно поднимать резюме в фоновом режиме
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  raise-ui:
+    desc: Непрерывно поднимать резюме в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  activity:
+    desc: Поднимать резюме и просматривать вакансии в фоновом режиме
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless
+        {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  activity-ui:
+    desc: Поднимать резюме и просматривать вакансии в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser
+        {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  activity-once:
+    desc: Выполнить один цикл просмотра в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once
+        {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity:
+    desc: Запустить все возможности в фоновом режиме
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity-ui:
+    desc: Запустить все возможности в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity-once:
+    desc: Выполнить один полный цикл в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity-reset-history:
+    desc: Начать новое поколение истории и запустить полный фоновый режим
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless --reset-vacancy-history
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  help:
+    desc: Показать все низкоуровневые параметры приложения
+    cmds:
+      - uv run --locked hh-resume-raiser --help
+
+  format:
+    desc: Отформатировать Python-код
+    cmds:
+      - uv run --locked --extra dev ruff format hh_raiser tests hh_resume_raiser.py
+
+  lint:
+    desc: Проверить Python-код линтером
+    cmds:
+      - uv run --locked --extra dev ruff check .
+
+  test:
+    desc: Запустить все автоматические тесты
+    cmds:
+      - uv run --locked --extra dev python -m unittest discover -s tests -v
+
+  check:
+    desc: Последовательно выполнить линтер и тесты
+    cmds:
+      - task: lint
+      - task: test
+
+  build:
+    desc: Собрать wheel и исходный архив
+    cmds:
+      - uv lock --check
+      - uv build

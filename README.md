@@ -27,6 +27,7 @@ Playwright и постоянный профиль Chromium; архитектур
 - [Возможности](#возможности)
 - [Требования](#требования)
 - [Установка](#установка)
+- [Команды Task](#команды-task)
 - [Настройка профессии и запросов](#настройка-профессии-и-запросов)
 - [Поисковые фильтры HH](#поисковые-фильтры-hh)
 - [Сопоставление вакансии с резюме](#сопоставление-вакансии-с-резюме)
@@ -47,19 +48,24 @@ Playwright и постоянный профиль Chromium; архитектур
 
 ## Быстрый старт
 
-Ниже — полный путь от клонирования до запуска всех возможностей на Windows.
+Ниже — одинаковый для Windows, Linux и macOS путь от клонирования до запуска
+всех возможностей. Платформенные различия скрыты за Task и `uv`.
+
+Один раз установите [uv](https://docs.astral.sh/uv/getting-started/installation/)
+и [Task](https://taskfile.dev/docs/installation/). Если Node.js уже установлен,
+Task можно поставить одинаковой на всех платформах командой
+`npm install --global @go-task/cli`.
 
 ### 1. Установите проект
 
-```powershell
+```text
 git clone git@github.com:jmp-ff25/HHRaiser.git
 cd HHRaiser
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m playwright install chromium
-Copy-Item .\hh-config.example.ini .\hh-config.ini
+task install
 ```
+
+Команда создаёт `.venv` через `uv`, устанавливает приложение и Chromium, а затем
+копирует шаблон в `hh-config.ini`, только если локальной конфигурации ещё нет.
 
 ### 2. Укажите своё резюме и поисковые запросы
 
@@ -108,22 +114,16 @@ password = replace-me
 
 ### 4. Один раз инициализируйте сессию
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --once --dry-run `
-  --credentials-file .\hh-credentials.ini
+```text
+task init-session
 ```
 
 Завершите вход, CAPTCHA или дополнительное подтверждение в открытом Chromium.
 
 ### 5. Запустите полный непрерывный режим
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --headless --full-activity `
-  --activity-interval-seconds 300 `
-  --match-threshold 65 `
-  --resume-index-refresh `
-  --resume-index-refresh-seconds 1800 `
-  --credentials-file .\hh-credentials.ini
+```text
+task full-activity
 ```
 
 Эта команда включает автоматическое поднятие, циклический просмотр настроенной
@@ -131,12 +131,11 @@ password = replace-me
 резюме и обратимое обновление его версии.
 Остановить программу можно одним нажатием Ctrl+C.
 
-`--match-threshold 65` означает, что к просмотру допускаются вакансии с расчётной
+Профиль `full-activity` использует порог 65: к просмотру допускаются вакансии с расчётной
 оценкой соответствия не ниже 65 из 100. Это объяснимая эвристическая оценка, а не
 статистически подтверждённая вероятность успеха или трудоустройства.
 
-Чтобы наблюдать работу визуально, запустите ту же команду без `--headless` —
-остальные параметры менять не требуется.
+Чтобы наблюдать работу визуально, используйте `task full-activity-ui`.
 
 ## Возможности
 
@@ -163,43 +162,73 @@ password = replace-me
 
 ## Требования
 
-- Python 3.12 или новее;
-- Windows 10/11 для приведённых ниже PowerShell-команд;
+- [uv](https://docs.astral.sh/uv/getting-started/installation/);
+- [Task](https://taskfile.dev/docs/installation/);
 - доступ к HH.ru и личная учётная запись владельца резюме;
-- Chromium, установленный через Playwright;
 - интерактивный рабочий стол для первичной CAPTCHA или дополнительного подтверждения.
 
-На Linux команды аналогичны, но вместо `.\.venv\Scripts\python.exe` используется
-`.venv/bin/python`. Для headless-запуска на чистом сервере системные зависимости
-Chromium можно установить командой `python -m playwright install --with-deps chromium`.
+Python 3.12, виртуальное окружение, зависимости приложения и Chromium подготавливает
+`task install`. На минимальном Linux-сервере системные библиотеки Chromium при
+необходимости устанавливаются отдельной командой `task install-system-deps`.
 
 ## Установка
 
 ### Обычная установка
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m playwright install chromium
+```text
+task install
 ```
 
 ### Установка для разработки
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```text
+task install-dev
 ```
 
-Режим `-e` оставляет пакет связанным с рабочей директорией: после обновления кода
-его не нужно устанавливать повторно.
+`uv` создаёт `.venv`, устанавливает проект в редактируемом режиме и фиксирует точные
+версии зависимостей в `uv.lock`. Активировать виртуальное окружение вручную не нужно.
+
+## Команды Task
+
+`Taskfile.yml` является единой оболочкой для локального запуска и CI. Одни и те же
+команды используются в любом поддерживаемом терминале:
+
+- `task install` — установить приложение и Chromium;
+- `task init-session` — выполнить первичную авторизацию в видимом Chromium;
+- `task raise` / `task raise-ui` — только поднятие в фоновом или видимом режиме;
+- `task activity` / `task activity-ui` — поднятие и вакансии без смены версии резюме;
+- `task full-activity` / `task full-activity-ui` — все возможности, включая
+  обратимую смену версии резюме;
+- `task activity-once` / `task full-activity-once` — один видимый цикл;
+- `task check` — линтер и все тесты;
+- `task build` — собрать wheel и исходный архив;
+- `task` — показать весь список с краткими пояснениями.
+
+Значения полного профиля можно переопределить без редактирования Taskfile:
+
+```text
+task full-activity MATCH_THRESHOLD=75 ACTIVITY_INTERVAL_SECONDS=600
+```
+
+Любые дополнительные параметры исходного CLI передаются после `--`:
+
+```text
+task full-activity -- --vacancies-per-cycle 5
+```
+
+Пути к локальным файлам также настраиваются переменными Task:
+
+```text
+task full-activity CONFIG_FILE=my-config.ini CREDENTIALS_FILE=my-credentials.ini
+```
 
 ## Настройка профессии и запросов
 
 Приложение не содержит встроенного названия профессии или резюме. Скопируйте
 шаблон и укажите собственные значения:
 
-```powershell
-Copy-Item .\hh-config.example.ini .\hh-config.ini
+```text
+task prepare-config
 ```
 
 ```ini
@@ -233,16 +262,11 @@ threshold = 55
 уникальных просмотров и минимальным сроком до повторного просмотра. Локальный `hh-config.ini`
 исключён из Git.
 
-Путь можно изменить через `--config-file`. Разовые значения можно передать без
-INI-файла:
+Путь можно изменить переменной Task `CONFIG_FILE`. Разовые значения можно передать
+исходному CLI после `--`, не создавая INI-файл:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py `
-  --resume-title "Моё резюме" `
-  --search-query "Первый запрос" `
-  --search-query "Второй запрос" `
-  --full-activity `
-  --credentials-file .\hh-credentials.ini
+```text
+task activity-ui -- --resume-title "Моё резюме" --search-query "Первый запрос" --search-query "Второй запрос"
 ```
 
 Также поддерживаются `HH_RESUME_TITLE` и список `HH_SEARCH_QUERIES`, разделённый
@@ -362,11 +386,11 @@ true`, начинается новый логический цикл уника�
 но до появления новых объявлений или истечения этого срока отдельный цикл может
 завершиться без содержательных просмотров. История при этом не удаляется.
 
-Вручную начать новый цикл уникальных просмотров перед обычным запуском можно флагом:
+Вручную начать новый цикл уникальных просмотров и сразу запустить полный режим можно
+готовой задачей:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --reset-vacancy-history `
-  --headless --full-activity --credentials-file .\hh-credentials.ini
+```text
+task full-activity-reset-history
 ```
 
 ## Интерактивная схема бизнес-логики
@@ -398,12 +422,9 @@ password = replace-me
 Файл уже исключён из Git. Не добавляйте его в коммиты и не передавайте другим
 пользователям.
 
-Поддерживаются также переменные окружения:
-
-```powershell
-$env:HH_PHONE = "+70000000000"
-$env:HH_PASSWORD = "replace-me"
-```
+Поддерживаются также переменные окружения `HH_PHONE` и `HH_PASSWORD`. Синтаксис их
+установки зависит от терминала, поэтому для локального запуска рекомендуется
+одинаковый на всех платформах файл `hh-credentials.ini`.
 
 Приоритет источников: параметры командной строки, переменные окружения, INI-файл,
 интерактивный ввод. Передавать пароль прямо в командной строке нежелательно: он
@@ -414,9 +435,8 @@ $env:HH_PASSWORD = "replace-me"
 Перед первым headless-запуском, после смены пароля или при появлении CAPTCHA
 инициализируйте постоянную сессию в видимом Chromium:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --once --dry-run `
-  --credentials-file .\hh-credentials.ini
+```text
+task init-session
 ```
 
 Завершите вход, CAPTCHA или дополнительное подтверждение в открытом окне. Когда
@@ -425,9 +445,8 @@ $env:HH_PASSWORD = "replace-me"
 
 Проверить авторизацию без использования основного профиля можно так:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --check-login `
-  --credentials-file .\hh-credentials.ini
+```text
+task check-login
 ```
 
 ## Режимы запуска
@@ -436,34 +455,29 @@ $env:HH_PASSWORD = "replace-me"
 
 Непрерывный headless-режим без индекса активности:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --headless `
-  --credentials-file .\hh-credentials.ini
+```text
+task raise
 ```
 
-Без `--headless` Chromium будет видимым и автоматически развернётся по доступной
-области монитора.
+Для видимого Chromium используйте `task raise-ui`; окно автоматически развернётся
+по доступной области монитора.
 
 ### Однократная безопасная проверка
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --once --dry-run `
-  --credentials-file .\hh-credentials.ini
+```text
+task init-session
 ```
 
 ### Один полный цикл просмотра
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --once --full-activity `
-  --credentials-file .\hh-credentials.ini
+```text
+task activity-once
 ```
 
 ### Непрерывное поднятие и просмотр вакансий
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --headless --full-activity `
-  --activity-interval-seconds 300 `
-  --credentials-file .\hh-credentials.ini
+```text
+task activity
 ```
 
 `--vacancies-per-cycle` ограничивает только один цикл. Пока программа работает,
@@ -471,12 +485,8 @@ $env:HH_PASSWORD = "replace-me"
 
 ### Полный режим с обратимым обновлением версии резюме
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --headless --full-activity `
-  --activity-interval-seconds 300 `
-  --resume-index-refresh `
-  --resume-index-refresh-seconds 1800 `
-  --credentials-file .\hh-credentials.ini
+```text
+task full-activity
 ```
 
 Этот режим выключен по умолчанию. Первый цикл выполняется сразу: приложение
@@ -490,8 +500,8 @@ $env:HH_PASSWORD = "replace-me"
 
 Полный актуальный список доступен через:
 
-```powershell
-.\.venv\Scripts\python.exe hh_resume_raiser.py --help
+```text
+task help
 ```
 
 Основные параметры:
@@ -589,6 +599,9 @@ hh_raiser/
 docs/research/        # результаты исследования интерфейса HH
 docs/adr/             # журнал архитектурных решений и их последствий
 tests/                # модульные и компонентные тесты
+Taskfile.yml          # единые команды установки, запуска и проверок
+pyproject.toml        # метаданные и зависимости Python-проекта
+uv.lock               # точные кроссплатформенные версии зависимостей
 hh_resume_raiser.py   # совместимая точка запуска
 ```
 
@@ -626,17 +639,20 @@ Skills хранятся вместе с кодом, поэтому одинак�
 
 ## Проверка и разработка
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\ruff.exe check hh_raiser tests
-.\.venv\Scripts\ruff.exe format --check hh_raiser tests
+```text
+task check
 ```
 
-Точка входа после установки пакета также доступна как:
+Отдельные проверки и форматирование доступны как:
 
-```powershell
-.\.venv\Scripts\hh-resume-raiser.exe --help
+```text
+task lint
+task test
+task format
 ```
+
+Низкоуровневая точка входа остаётся доступна через
+`uv run hh-resume-raiser`; совместимый файл `hh_resume_raiser.py` также сохранён.
 
 ## Частые проблемы
 
@@ -647,13 +663,13 @@ Skills хранятся вместе с кодом, поэтому одинак�
 
 ### HH просит пароль, код или CAPTCHA
 
-Остановите headless-запуск и повторите [первичную авторизацию](#первичная-авторизация)
-без `--headless`. После успешного подтверждения снова запустите основной режим.
+Остановите фоновый запуск и выполните `task init-session`. После успешного
+подтверждения снова запустите основной режим.
 
 ### Playwright не находит Chromium
 
-```powershell
-.\.venv\Scripts\python.exe -m playwright install chromium
+```text
+task install-browser
 ```
 
 ### Профиль Chromium уже используется
