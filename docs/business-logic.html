@@ -5,537 +5,108 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HHRaiser — бизнес-логика</title>
   <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --surface-2: #eef2f6;
-      --text: #17202a;
-      --muted: #607080;
-      --line: #aeb9c5;
-      --border: #d7dee6;
-      --accent: #c92635;
-      --accent-soft: #f9e8ea;
-      --success: #16794b;
-      --warning: #a15c00;
-      --focus: #1769aa;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #11161c;
-        --surface: #19212a;
-        --surface-2: #222d38;
-        --text: #edf2f7;
-        --muted: #a8b6c5;
-        --line: #657586;
-        --border: #334252;
-        --accent: #ff5a68;
-        --accent-soft: #44232a;
-        --success: #63d49b;
-        --warning: #f0b35b;
-        --focus: #70b8ef;
-      }
-    }
-
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font: 15px/1.5 Inter, "Segoe UI", system-ui, sans-serif;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding: 22px 28px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
-    header p { margin: 4px 0 0; color: var(--muted); }
-    .status {
-      white-space: nowrap;
-      padding: 5px 10px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      color: var(--success);
-      font-size: 13px;
-    }
-    main {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 350px;
-      min-height: calc(100vh - 91px);
-    }
-    .workspace { min-width: 0; padding: 18px; }
-    .toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-    button {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 7px 11px;
-      background: var(--surface);
-      color: var(--text);
-      cursor: pointer;
-    }
-    button:hover, button:focus-visible { border-color: var(--focus); outline: none; }
-    .hint { margin-left: auto; color: var(--muted); font-size: 13px; }
-    .canvas {
-      height: calc(100vh - 156px);
-      min-height: 620px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background-color: var(--surface);
-      cursor: grab;
-    }
-    .canvas.dragging { cursor: grabbing; }
-    svg { width: 100%; height: 100%; user-select: none; }
-    .lane { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
-    .lane-title { fill: var(--muted); font-size: 15px; font-weight: 700; }
-    .node rect, .node polygon {
-      fill: var(--surface);
-      stroke: var(--line);
-      stroke-width: 2;
-      transition: stroke .15s ease, stroke-width .15s ease;
-    }
-    .node.action rect { stroke: var(--accent); }
-    .node.decision polygon { stroke: var(--warning); }
-    .node.end rect { stroke: var(--success); }
-    .node:hover rect, .node:hover polygon,
-    .node.active rect, .node.active polygon,
-    .node:focus-visible rect, .node:focus-visible polygon {
-      stroke: var(--focus);
-      stroke-width: 4;
-      outline: none;
-    }
-    .node { cursor: pointer; }
-    .node-title { fill: var(--text); font-size: 17px; font-weight: 700; pointer-events: none; }
-    .node-subtitle { fill: var(--muted); font-size: 13px; pointer-events: none; }
-    .edge { fill: none; stroke: var(--line); stroke-width: 2; marker-end: url(#arrow); }
-    .edge.primary { stroke: var(--accent); stroke-width: 3; }
-    .edge-label {
-      fill: var(--muted);
-      stroke: var(--surface-2);
-      stroke-width: 7px;
-      paint-order: stroke;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    aside {
-      padding: 24px;
-      border-left: 1px solid var(--border);
-      background: var(--surface);
-      overflow: auto;
-    }
-    aside h2 { margin: 0 0 8px; font-size: 21px; }
-    aside h3 { margin: 22px 0 6px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-    aside p { margin: 0; }
-    aside ul { margin: 7px 0 0; padding-left: 19px; }
-    aside code { background: var(--surface-2); border-radius: 5px; padding: 2px 5px; }
-    .tag {
-      display: inline-block;
-      margin: 0 5px 6px 0;
-      padding: 3px 7px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .callout {
-      margin-top: 22px;
-      padding: 12px;
-      border-left: 3px solid var(--warning);
-      background: var(--surface-2);
-      color: var(--muted);
-    }
-    footer { margin-top: 24px; color: var(--muted); font-size: 12px; }
-
-    @media (max-width: 980px) {
-      main { grid-template-columns: 1fr; }
-      aside { border: 0; border-top: 1px solid var(--border); }
-      .canvas { height: 68vh; }
-      .hint { display: none; }
-    }
+    :root { color-scheme:light dark; --bg:#f3f6f8; --surface:#fff; --alt:#eef2f5; --text:#17212b; --muted:#637383; --border:#d5dee6; --accent:#c92535; --focus:#1474b8; --success:#197a50; --warning:#a46200; }
+    @media (prefers-color-scheme:dark) { :root { --bg:#111820; --surface:#19232d; --alt:#222f3b; --text:#eef3f8; --muted:#a9b8c6; --border:#354656; --accent:#ff5a68; --focus:#6fc2f5; --success:#60d69a; --warning:#f0ad4e; } }
+    * { box-sizing:border-box; }
+    body { margin:0; overflow:hidden; background:var(--bg); color:var(--text); font:15px/1.5 Inter,"Segoe UI",system-ui,sans-serif; }
+    header { height:84px; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 26px; border-bottom:1px solid var(--border); background:var(--surface); }
+    h1 { margin:0; font-size:23px; letter-spacing:-.02em; }
+    header p { margin:3px 0 0; color:var(--muted); }
+    .offline { white-space:nowrap; padding:5px 10px; border:1px solid var(--border); border-radius:999px; color:var(--success); font-size:13px; }
+    main { height:calc(100vh - 84px); display:grid; grid-template-columns:minmax(0,1fr) 350px; }
+    .workspace { min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr); padding:14px; }
+    .toolbar { display:flex; align-items:center; gap:7px; padding-bottom:10px; }
+    button { border:1px solid var(--border); border-radius:8px; padding:7px 11px; background:var(--surface); color:var(--text); cursor:pointer; font:inherit; }
+    button:hover, button:focus-visible { border-color:var(--focus); outline:none; }
+    button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .controls { display:flex; gap:6px; margin-left:auto; }
+    .graph-shell { position:relative; min-height:0; overflow:hidden; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+    #graph { position:absolute; inset:0; opacity:0; transition:opacity .12s ease; }
+    #graph.ready { opacity:1; }
+    #loading { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); background:var(--surface); z-index:2; }
+    #loading.hidden { display:none; }
+    .legend { position:absolute; left:14px; bottom:12px; z-index:3; display:flex; flex-wrap:wrap; gap:10px; padding:6px 9px; border:1px solid var(--border); border-radius:7px; background:var(--surface); color:var(--muted); font-size:12px; pointer-events:none; }
+    .dot { width:9px; height:9px; display:inline-block; margin-right:4px; border-radius:2px; background:var(--muted); }
+    .dot.action { background:var(--accent); } .dot.decision { background:var(--warning); } .dot.terminal { background:var(--success); }
+    aside { overflow:auto; padding:22px; border-left:1px solid var(--border); background:var(--surface); }
+    aside h2 { margin:0 0 8px; font-size:21px; }
+    aside h3 { margin:20px 0 6px; color:var(--muted); font-size:12px; letter-spacing:.07em; text-transform:uppercase; }
+    aside p { margin:0; }
+    aside code { padding:2px 5px; border-radius:5px; background:var(--alt); }
+    .tag { display:inline-block; margin:0 5px 6px 0; padding:3px 7px; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:12px; }
+    .note { margin-top:20px; padding:11px; border-left:3px solid var(--accent); background:var(--alt); color:var(--muted); }
+    footer { margin-top:22px; color:var(--muted); font-size:12px; }
+    @media (max-width:900px) { body { overflow:auto; } header { height:auto; } main { height:auto; grid-template-columns:1fr; } .workspace { height:72vh; } aside { border-left:0; border-top:1px solid var(--border); } .offline { display:none; } }
   </style>
 </head>
 <body>
   <header>
-    <div>
-      <h1>HHRaiser: бизнес-логика одного непрерывного запуска</h1>
-      <p>Нажмите на любой блок, чтобы увидеть условия, результат и связанные настройки.</p>
-    </div>
-    <div class="status">Работает без интернета</div>
+    <div><h1>HHRaiser: бизнес-логика</h1><p>Автоматическая раскладка Cytoscape.js + Dagre · нажмите на блок для пояснения.</p></div>
+    <div class="offline">Работает офлайн</div>
   </header>
-
   <main>
     <section class="workspace" aria-label="Интерактивная блок-схема">
       <div class="toolbar">
-        <button type="button" data-zoom="in" aria-label="Увеличить">Увеличить</button>
-        <button type="button" data-zoom="out" aria-label="Уменьшить">Уменьшить</button>
-        <button type="button" id="fit">Показать всё</button>
-        <span class="hint">Колесо — масштаб · перетаскивание — перемещение</span>
+        <button type="button" class="view active" data-view="main">Основной цикл</button>
+        <button type="button" class="view" data-view="vacancies">Уникальные вакансии</button>
+        <div class="controls">
+          <button type="button" id="zoom-out" aria-label="Уменьшить">−</button>
+          <button type="button" id="fit">Вписать</button>
+          <button type="button" id="zoom-in" aria-label="Увеличить">+</button>
+        </div>
       </div>
-      <div class="canvas" id="canvas">
-        <svg id="diagram" viewBox="0 0 1500 1080" role="img" aria-labelledby="svg-title svg-desc">
-          <title id="svg-title">Бизнес-логика HHRaiser</title>
-          <desc id="svg-desc">От запуска и проверки поднятия резюме до отбора вакансий, сохранения истории и ожидания следующего события.</desc>
-          <defs>
-            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L0,6 L9,3 z" fill="context-stroke"></path>
-            </marker>
-          </defs>
-
-          <g id="viewport">
-            <rect class="lane" x="25" y="25" width="1450" height="180" rx="14"></rect>
-            <text class="lane-title" x="48" y="55">1 · ЗАПУСК И СЕССИЯ</text>
-            <rect class="lane" x="25" y="225" width="1450" height="235" rx="14"></rect>
-            <text class="lane-title" x="48" y="255">2 · ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА РЕЗЮМЕ</text>
-            <rect class="lane" x="25" y="480" width="1450" height="370" rx="14"></rect>
-            <text class="lane-title" x="48" y="510">3 · ДОПОЛНИТЕЛЬНАЯ АКТИВНОСТЬ И ВАКАНСИИ</text>
-            <rect class="lane" x="25" y="870" width="1450" height="180" rx="14"></rect>
-            <text class="lane-title" x="48" y="900">4 · ПЛАНИРОВАНИЕ И ЗАВЕРШЕНИЕ</text>
-
-            <path class="edge primary" d="M305 120 H375"></path>
-            <path class="edge primary" d="M655 120 H725"></path>
-            <path class="edge primary" d="M1005 120 H1075"></path>
-            <path class="edge primary" d="M1215 170 V285 H1175"></path>
-            <path class="edge primary" d="M1025 330 H930"></path>
-            <path class="edge" d="M650 330 H555"></path>
-            <path class="edge" d="M405 380 V540 H320"></path>
-            <path class="edge" d="M500 585 H570"></path>
-            <path class="edge" d="M850 585 H920"></path>
-            <path class="edge" d="M1200 585 H1270"></path>
-            <path class="edge" d="M1355 650 V750 H1200"></path>
-            <path class="edge" d="M920 750 H850"></path>
-            <path class="edge primary" d="M570 750 H500"></path>
-            <path class="edge" d="M1060 810 V832 H320 V795"></path>
-            <path class="edge primary" d="M320 795 V945 H385"></path>
-            <path class="edge" d="M665 945 H735"></path>
-            <path class="edge primary" d="M1015 945 H1080"></path>
-            <path class="edge primary" d="M1360 945 H1445 V331 H1325"></path>
-            <path class="edge" d="M1220 999 V1002 H1240"></path>
-
-            <text class="edge-label" x="976" y="314" text-anchor="middle">в каждом обороте</text>
-            <text class="edge-label" x="602" y="314" text-anchor="middle">по расписанию</text>
-            <text class="edge-label" x="355" y="474">если наступило время</text>
-            <text class="edge-label" x="1275" y="738" text-anchor="middle">доступна</text>
-            <text class="edge-label" x="885" y="738" text-anchor="middle">score ≥ порога</text>
-            <text class="edge-label" x="690" y="823" text-anchor="middle">ниже порога: сохранить только оценку</text>
-            <text class="edge-label" x="1402" y="690" text-anchor="middle">браузер открыт</text>
-            <text class="edge-label" x="1232" y="1027" text-anchor="end">закрыт</text>
-
-            <g class="node" data-node="start" tabindex="0" role="button" aria-label="Загрузка настроек" transform="translate(95 78)">
-              <rect width="210" height="84" rx="42"></rect>
-              <text class="node-title" x="105" y="36" text-anchor="middle">Запуск</text>
-              <text class="node-subtitle" x="105" y="58" text-anchor="middle">CLI + INI</text>
-            </g>
-            <g class="node" data-node="browser" tabindex="0" role="button" aria-label="Запуск браузера" transform="translate(375 78)">
-              <rect width="280" height="84" rx="10"></rect>
-              <text class="node-title" x="140" y="35" text-anchor="middle">Постоянный Chromium</text>
-              <text class="node-subtitle" x="140" y="58" text-anchor="middle">профиль и сохранённая сессия</text>
-            </g>
-            <g class="node decision" data-node="auth" tabindex="0" role="button" aria-label="Проверка авторизации" transform="translate(725 66)">
-              <polygon points="140,0 280,54 140,108 0,54"></polygon>
-              <text class="node-title" x="140" y="49" text-anchor="middle">Авторизация?</text>
-              <text class="node-subtitle" x="140" y="70" text-anchor="middle">CAPTCHA → владелец</text>
-            </g>
-            <g class="node" data-node="session" tabindex="0" role="button" aria-label="Рабочая сессия" transform="translate(1075 78)">
-              <rect width="280" height="84" rx="10"></rect>
-              <text class="node-title" x="140" y="35" text-anchor="middle">Рабочая сессия</text>
-              <text class="node-subtitle" x="140" y="58" text-anchor="middle">модальные окна закрываются</text>
-            </g>
-
-            <g class="node action" data-node="raise" tabindex="0" role="button" aria-label="Проверка поднятия резюме" transform="translate(1025 285)">
-              <rect width="300" height="92" rx="10"></rect>
-              <text class="node-title" x="150" y="36" text-anchor="middle">Проверить поднятие</text>
-              <text class="node-subtitle" x="150" y="61" text-anchor="middle">нажать только если доступно</text>
-            </g>
-            <g class="node decision" data-node="refresh" tabindex="0" role="button" aria-label="Проверка времени обновления версии" transform="translate(650 276)">
-              <polygon points="140,0 280,54 140,108 0,54"></polygon>
-              <text class="node-title" x="140" y="48" text-anchor="middle">Пора обновить</text>
-              <text class="node-title" x="140" y="69" text-anchor="middle">версию резюме?</text>
-            </g>
-            <g class="node decision" data-node="activity_due" tabindex="0" role="button" aria-label="Проверка времени активности" transform="translate(275 276)">
-              <polygon points="140,0 280,54 140,108 0,54"></polygon>
-              <text class="node-title" x="140" y="48" text-anchor="middle">Пора выполнить</text>
-              <text class="node-title" x="140" y="69" text-anchor="middle">активность?</text>
-            </g>
-
-            <g class="node" data-node="rotation" tabindex="0" role="button" aria-label="Выбор запроса и страницы" transform="translate(140 540)">
-              <rect width="360" height="90" rx="10"></rect>
-              <text class="node-title" x="180" y="35" text-anchor="middle">Shuffle bag запросов и страниц</text>
-              <text class="node-subtitle" x="180" y="60" text-anchor="middle">без повторения страницы в одном проходе</text>
-            </g>
-            <g class="node" data-node="filters" tabindex="0" role="button" aria-label="Поиск с фильтрами HH" transform="translate(570 540)">
-              <rect width="280" height="90" rx="10"></rect>
-              <text class="node-title" x="140" y="35" text-anchor="middle">Поиск HH</text>
-              <text class="node-subtitle" x="140" y="60" text-anchor="middle">запрос + разрешённые фильтры</text>
-            </g>
-            <g class="node" data-node="discover" tabindex="0" role="button" aria-label="Сбор вакансий" transform="translate(920 540)">
-              <rect width="280" height="90" rx="10"></rect>
-              <text class="node-title" x="140" y="35" text-anchor="middle">Собрать ссылки</text>
-              <text class="node-subtitle" x="140" y="60" text-anchor="middle">канонический публичный ID</text>
-            </g>
-            <g class="node decision" data-node="unique" tabindex="0" role="button" aria-label="Проверка уникальности" transform="translate(1270 520)">
-              <polygon points="85,0 170,65 85,130 0,65"></polygon>
-              <text class="node-title" x="85" y="59" text-anchor="middle">Доступна</text>
-              <text class="node-title" x="85" y="80" text-anchor="middle">по истории?</text>
-            </g>
-            <g class="node decision" data-node="matching" tabindex="0" role="button" aria-label="Оценка соответствия" transform="translate(920 690)">
-              <polygon points="140,0 280,60 140,120 0,60"></polygon>
-              <text class="node-title" x="140" y="54" text-anchor="middle">Соответствие</text>
-              <text class="node-subtitle" x="140" y="77" text-anchor="middle">BM25F + навыки + лексика</text>
-            </g>
-            <g class="node action" data-node="view" tabindex="0" role="button" aria-label="Содержательный просмотр" transform="translate(570 705)">
-              <rect width="280" height="90" rx="10"></rect>
-              <text class="node-title" x="140" y="35" text-anchor="middle">Просмотр вакансии</text>
-              <text class="node-subtitle" x="140" y="60" text-anchor="middle">открытие · прокрутка · пауза</text>
-            </g>
-            <g class="node" data-node="history" tabindex="0" role="button" aria-label="Сохранение истории" transform="translate(140 705)">
-              <rect width="360" height="90" rx="10"></rect>
-              <text class="node-title" x="180" y="35" text-anchor="middle">SQLite-история и отчёт</text>
-              <text class="node-subtitle" x="180" y="60" text-anchor="middle">просмотр отмечается только после успеха</text>
-            </g>
-
-            <g class="node" data-node="review" tabindex="0" role="button" aria-label="Проверка резюме" transform="translate(385 903)">
-              <rect width="280" height="84" rx="10"></rect>
-              <text class="node-title" x="140" y="34" text-anchor="middle">Проверить резюме</text>
-              <text class="node-subtitle" x="140" y="58" text-anchor="middle">рекомендации без автоправок</text>
-            </g>
-            <g class="node" data-node="schedule" tabindex="0" role="button" aria-label="Расчёт следующего события" transform="translate(735 903)">
-              <rect width="280" height="84" rx="10"></rect>
-              <text class="node-title" x="140" y="34" text-anchor="middle">Ближайший таймер</text>
-              <text class="node-subtitle" x="140" y="58" text-anchor="middle">поднятие · активность · версия</text>
-            </g>
-            <g class="node decision" data-node="alive" tabindex="0" role="button" aria-label="Проверка окна браузера" transform="translate(1080 891)">
-              <polygon points="140,0 280,54 140,108 0,54"></polygon>
-              <text class="node-title" x="140" y="49" text-anchor="middle">Браузер открыт?</text>
-              <text class="node-subtitle" x="140" y="70" text-anchor="middle">ожидание прерываемо</text>
-            </g>
-            <g class="node end" data-node="stop" tabindex="0" role="button" aria-label="Завершение" transform="translate(1240 970)">
-              <rect width="200" height="64" rx="32"></rect>
-              <text class="node-title" x="100" y="39" text-anchor="middle">Завершить</text>
-            </g>
-          </g>
-        </svg>
+      <div class="graph-shell">
+        <div id="loading">Строю схему…</div>
+        <div id="graph"></div>
+        <div class="legend"><span><i class="dot action"></i>действие</span><span><i class="dot decision"></i>решение</span><span><i class="dot terminal"></i>переход / завершение</span></div>
       </div>
     </section>
-
     <aside aria-live="polite">
       <div id="details"></div>
-      <div class="callout">
-        <strong>Что происходит при исчерпании?</strong><br>
-        HH не сообщает приложению об исчерпании напрямую. Приложение считает запрос
-        исчерпанным, когда проверило все наблюдаемые страницы его пагинации и не
-        нашло на них допустимых по истории кандидатов. Новый логический проход
-        начинается только после исчерпания всех настроенных запросов. Программа
-        продолжает работать, но до истечения <code>revisit_after_days</code> возможен
-        цикл без просмотров.
-      </div>
-      <footer>Самодостаточный документ · внешние скрипты, шрифты и сетевые запросы не используются.</footer>
+      <div class="note"><strong>Важно:</strong> HH не передаёт признак исчерпания. Вывод делается по наблюдаемой пагинации и SQLite-истории. Новое поколение не отменяет <code>revisit_after_days</code>.</div>
+      <footer>Cytoscape.js 3.34.3 и Dagre хранятся локально. CDN и сетевые запросы не используются.</footer>
     </aside>
   </main>
-
+  <script src="./vendor/cytoscape.min.js"></script>
+  <script src="./vendor/dagre.min.js"></script>
+  <script src="./vendor/cytoscape-dagre.min.js"></script>
   <script>
-    const content = {
-      start: {
-        title: "Загрузка настроек",
-        text: "CLI-параметры объединяются с локальными INI-настройками; CLI имеет приоритет.",
-        tags: ["config.py", "hh-config.ini"],
-        items: ["Название выбранного резюме", "Один или несколько поисковых запросов", "Фильтры, порог соответствия и интервалы"]
-      },
-      browser: {
-        title: "Постоянный Chromium",
-        text: "Playwright запускает профиль, в котором может сохраняться подтверждённая владельцем HH-сессия.",
-        tags: ["Playwright", "persistent context"],
-        items: ["Видимый или headless-режим", "Размер окна соответствует доступной области экрана", "Cookies не попадают в Git"]
-      },
-      auth: {
-        title: "Авторизация",
-        text: "Автоматически используется уже подтверждённая сессия. Код, CAPTCHA и дополнительную проверку проходит владелец.",
-        tags: ["без обхода CAPTCHA"],
-        items: ["Успех: профиль резюме распознан", "Требуется вмешательство: HH показывает проверку"]
-      },
-      session: {
-        title: "Рабочая сессия",
-        text: "Перед критическими действиями закрываются известные некритичные модальные окна, включая предложение hh PRO.",
-        tags: ["modal guard"],
-        items: ["Интерфейс остаётся главным источником результата", "Неизвестное перекрытие приводит к безопасному пропуску"]
-      },
-      raise: {
-        title: "Поднятие резюме",
-        text: "Состояние выбранного резюме проверяется в каждом обороте. Клик выполняется только при явно доступной кнопке.",
-        tags: ["обязательно", "cooldown"],
-        items: ["waiting: запомнить время следующего поднятия", "available: один защищённый клик", "unknown: отложить без повторного клика"]
-      },
-      refresh: {
-        title: "Обновление версии резюме",
-        text: "Необязательная функция выполняется по собственному интервалу и хранит состояние обратимого изменения.",
-        tags: ["--resume-index-refresh"],
-        items: ["Первое выполнение назначается сразу после запуска", "Следующее — через настроенный интервал", "Ошибки фиксируются в отчёте"]
-      },
-      activity_due: {
-        title: "Периодическая активность",
-        text: "Полный режим запускает поиск и просмотр по отдельному расписанию.",
-        tags: ["--full-activity"],
-        items: ["Интервал задаёт activity_interval_seconds", "Если обновление версии уже выполнялось, активность будет проверена в следующем обороте"]
-      },
-      rotation: {
-        title: "Shuffle bag",
-        text: "Запросы перемешиваются, а страницы каждого запроса выбираются случайно без повторения внутри текущего прохода.",
-        tags: ["VacancyRotation"],
-        items: ["Страница 0 сначала определяет размер пагинации", "Охват ведётся отдельно для каждого запроса", "Исчерпание определяется по всем известным запросам и страницам"]
-      },
-      filters: {
-        title: "Серверные фильтры HH",
-        text: "Поисковый URL строится только из явно поддерживаемых параметров.",
-        tags: ["excluded_words", "search_fields", "experience"],
-        items: ["Фильтры применяются на стороне поиска HH", "Локатор интерфейса подтверждает, что выдача распознана"]
-      },
-      discover: {
-        title: "Обнаружение вакансий",
-        text: "Из карточек извлекаются канонические ссылки и публичные идентификаторы без query-параметров.",
-        tags: ["public vacancy ID"],
-        items: ["Одна вакансия глобально дедуплицируется между запросами", "Связь вакансии с каждым запросом остаётся в истории"]
-      },
-      unique: {
-        title: "Допуск по истории",
-        text: "SQLite атомарно резервирует кандидатов, которые ещё не оценивались и не просматривались в текущем логическом проходе.",
-        tags: ["generation", "lease"],
-        items: ["Также должен истечь revisit_after_days", "Ошибка освобождает резерв", "Исчерпание запроса выводится из полного обхода наблюдаемой пагинации", "Лимит уникальности считается глобально, а не отдельно по запросу"]
-      },
-      matching: {
-        title: "Объяснимая оценка соответствия",
-        text: "До прокрутки описание сравнивается с резюме. Итоговый score 0–100 — эвристическая оценка, не вероятность трудоустройства.",
-        tags: ["BM25F", "навыки", "лексика", "заголовок"],
-        items: ["score ниже порога: сохранить оценку и пропустить", "score не ниже порога: перейти к содержательному просмотру", "Модель работает локально без LLM"]
-      },
-      view: {
-        title: "Содержательный просмотр",
-        text: "Страница вакансии открывается, распознаются заголовок и описание, затем выполняются прокрутка и пауза.",
-        tags: ["без отклика"],
-        items: ["Название и score отражаются в логах", "Проект не отправляет отклики", "Нераспознанная страница получает unknown"]
-      },
-      history: {
-        title: "История и отчёт",
-        text: "Успешный просмотр и результат оценки записываются раздельно; база не очищается при новом проходе.",
-        tags: ["SQLite", "JSONL"],
-        items: ["view_count сохраняет долгосрочную аналитику", "Новое поколение меняет логический допуск", "Персональные тела сетевых ответов не сохраняются"]
-      },
-      review: {
-        title: "Проверка резюме",
-        text: "Приложение проверяет структуру и предлагает владельцу только содержательные правки.",
-        tags: ["без автоматических смысловых правок"],
-        items: ["Рекомендация не равна автоматическому изменению", "Результат добавляется в отчёт активности"]
-      },
-      schedule: {
-        title: "Планирование следующего события",
-        text: "Выбирается ближайшее из времени поднятия, активности и обновления версии резюме.",
-        tags: ["scheduler"],
-        items: ["Ожидание разбито на короткие проверки", "Системные часы сверяются периодически", "Ctrl+C обрабатывается как штатная остановка"]
-      },
-      alive: {
-        title: "Контроль браузера",
-        text: "Во время ожидания приложение следит за закрытием страницы и запросом остановки.",
-        tags: ["graceful shutdown"],
-        items: ["Окно закрыто: завершиться без перезапуска", "Флаг перезапуска должен быть задан явно", "Окно открыто: вернуться к обязательной проверке"]
-      },
-      stop: {
-        title: "Штатное завершение",
-        text: "Контекст Playwright закрывается тихо, локальные данные и аналитика остаются для следующего запуска.",
-        tags: ["Ctrl+C", "browser close"],
-        items: ["Автоматического отклика нет", "Самопроизвольный перезапуск по умолчанию отключён"]
-      }
+    const descriptions = {
+      start:["Запуск","CLI объединяется с локальными INI-настройками; параметры командной строки имеют приоритет.",["CLI","hh-config.ini"]], browser:["Постоянный Chromium","Playwright запускает профиль с ранее подтверждённой владельцем сессией.",["Playwright","persistent context"]], auth:["Авторизация","Код, CAPTCHA и дополнительную проверку проходит владелец.",["без обхода защиты"]], session:["Рабочая сессия","Известные некритичные модальные окна закрываются перед действиями.",["modal guard"]],
+      raise:["Поднятие резюме","Клик выполняется только при доступной кнопке и защищён от повтора.",["available","cooldown"]], refresh:["Расписание версии","Необязательное обратимое обновление имеет собственный интервал.",["resume-index-refresh"]], activity:["Периодическая активность","Поиск запускается в полном режиме по отдельному расписанию.",["full-activity"]], vacancy:["Цикл вакансий","Подробности показаны на вкладке «Уникальные вакансии».",["до 10 просмотров"]], report:["Результаты","Оценка, просмотр и ошибки сохраняются раздельно.",["SQLite","JSONL"]], review:["Проверка резюме","Содержательные изменения только предлагаются владельцу.",["owner approval"]], timer:["Ближайший таймер","Выбирается ближайшее плановое событие.",["scheduler"]], alive:["Контроль браузера","Закрытие окна прерывает ожидание и завершает приложение.",["graceful shutdown"]], next:["Следующий оборот","Работа возвращается к обязательной проверке поднятия.",["loop"]], stop:["Штатное завершение","История сохраняется, автоматического перезапуска нет.",["Ctrl+C","browser close"]],
+      query:["Выбор запроса","Запросы задаются владельцем и перемешиваются.",["search_queries"]], pagination:["Наблюдаемая пагинация","Первая страница сообщает доступное количество страниц.",["page_count"]], page:["Выбор страницы","Страница не повторяется в текущем проходе.",["shuffle bag"]], collect:["Канонические ID","Вакансия глобально дедуплицируется между запросами.",["public ID"]], eligible:["Допуск по истории","Исключаются оценённые и просмотренные в этом поколении, резервы и недавние просмотры.",["generation","revisit_after_days"]], matching:["Оценка соответствия","Score 0–100 сравнивается с порогом; это не вероятность трудоустройства.",["BM25F","навыки","лексика"]], view:["Содержательный просмотр","Принятая вакансия прокручивается; отклик не отправляется.",["no apply"]], save:["Запись результата","Успешный просмотр и только оценка сохраняются как разные исходы.",["view_count","match score"]],
+      queryDone:["Исчерпание запроса","Все наблюдаемые страницы пагинации проверены в текущем проходе.",["runtime coverage"]], allDone:["Глобальное исчерпание","Новый проход возможен после обхода всех настроенных запросов.",["all queries"]], reset:["Новый проход?","Настройка reset_on_exhaustion определяет автоматический переход.",["reset_on_exhaustion"]], generation:["Новое поколение","Покрытие страниц сбрасывается без удаления аналитики.",["generation + 1"]], cooldown:["Срок повторного просмотра","Даже в новом поколении нужно дождаться revisit_after_days.",["cooldown"]], empty:["Цикл без просмотров","Процесс работает, но допустимых кандидатов сейчас нет.",["0 views possible"]], available:["Повторный допуск","После истечения срока старые вакансии снова могут участвовать в отборе.",["eligible again"]], nextQuery:["Следующий запрос","Исчерпание одного запроса не останавливает остальные.",["rotation"]], continue:["Продолжение отбора","Проверяется следующая доступная страница в пределах бюджета цикла.",["search_pages_per_cycle"]], target:["Целевой объём","Цикл стремится набрать 10 просмотров, но не гарантирует их.",["vacancies_per_cycle"]], summary:["Сводка","Итоги цикла группируются в журнале.",["activity report"]]
     };
-
-    const details = document.querySelector("#details");
-    const nodes = [...document.querySelectorAll(".node")];
-
-    function selectNode(id) {
-      const item = content[id];
-      if (!item) return;
-      nodes.forEach(node => node.classList.toggle("active", node.dataset.node === id));
-      details.innerHTML = `
-        <h2>${item.title}</h2>
-        <p>${item.text}</p>
-        <h3>Связанные понятия</h3>
-        <div>${item.tags.map(tag => `<span class="tag">${tag}</span>`).join("")}</div>
-        <h3>Правила</h3>
-        <ul>${item.items.map(value => `<li>${value}</li>`).join("")}</ul>`;
+    const n=(id,label,kind="normal")=>({data:{id,label,kind}}); const e=(id,source,target,label="")=>({data:{id,source,target,label}});
+    const graphs={
+      main:[
+        n("start","Запуск\nCLI + INI","terminal"),n("browser","Постоянный Chromium\nсохранённая сессия"),n("auth","Авторизация\nподтверждена?","decision"),n("session","Рабочая сессия\nконтроль модальных окон"),n("raise","Проверить поднятие\nклик только при available","action"),n("refresh","Пора обновить\nверсию резюме?","decision"),n("activity","Пора выполнить\nактивность?","decision"),n("vacancy","Цикл отбора вакансий\nсм. соседнюю вкладку","action"),n("report","Записать результаты\nSQLite + JSONL"),n("review","Проверить резюме\nрекомендации владельцу"),n("timer","Ближайший таймер\nтри расписания"),n("alive","Браузер открыт?","decision"),n("next","Следующий оборот","terminal"),n("stop","Штатно завершить","terminal"),
+        e("m1","start","browser"),e("m2","browser","auth"),e("m3","auth","session","да / после подтверждения"),e("m4","session","raise"),e("m5","raise","refresh"),e("m6","refresh","activity","нет"),e("m7","refresh","review","да: обновить версию"),e("m8","activity","vacancy","да"),e("m9","activity","review","нет"),e("m10","vacancy","report"),e("m11","report","review"),e("m12","review","timer"),e("m13","timer","alive"),e("m14","alive","next","да"),e("m15","alive","stop","нет")
+      ],
+      vacancies:[
+        n("query","Выбрать поисковый запрос"),n("pagination","Узнать пагинацию\nстраница 0 → page_count"),n("page","Непроверенная страница\nслучайно без повторения"),n("collect","Собрать канонические ID"),n("eligible","Есть допустимые\nпо истории?","decision"),n("matching","score ≥ threshold?","decision"),n("view","Просмотреть вакансию\nпрокрутка + пауза","action"),n("save","Сохранить просмотр\nили только оценку"),n("target","Набрано 10\nпросмотров?","decision"),n("summary","Записать сводку","terminal"),n("continue","Продолжить отбор","terminal"),n("queryDone","Все страницы запроса\nпроверены?","decision"),n("allDone","Все запросы\nисчерпаны?","decision"),n("nextQuery","Перейти к другому запросу","terminal"),n("reset","Начать новый проход?","decision"),n("generation","Новое поколение\nистория сохраняется","action"),n("cooldown","Истёк\nrevisit_after_days?","decision"),n("available","Старые вакансии\nснова допустимы","terminal"),n("empty","Ждать следующий цикл\nвозможны 0 просмотров","terminal"),
+        e("v1","query","pagination"),e("v2","pagination","page"),e("v3","page","collect"),e("v4","collect","eligible"),e("v5","eligible","matching","да"),e("v6","matching","view","да"),e("v7","matching","save","нет: только оценка"),e("v8","view","save"),e("v9","save","target"),e("v10","target","summary","да"),e("v11","target","continue","нет"),e("v12","eligible","queryDone","нет"),e("v13","queryDone","continue","нет"),e("v14","queryDone","allDone","да"),e("v15","allDone","nextQuery","нет"),e("v16","allDone","reset","да"),e("v17","reset","generation","да"),e("v18","reset","empty","нет"),e("v19","generation","cooldown"),e("v20","cooldown","available","да"),e("v21","cooldown","empty","нет")
+      ]
+    };
+    const dark=matchMedia("(prefers-color-scheme:dark)").matches;
+    const colors=dark?{text:"#eef3f8",muted:"#a9b8c6",node:"#19232d",line:"#718396",accent:"#ff5a68",decision:"#f0ad4e",terminal:"#60d69a",focus:"#6fc2f5",edgeBg:"#19232d"}:{text:"#17212b",muted:"#637383",node:"#fff",line:"#8594a3",accent:"#c92535",decision:"#a46200",terminal:"#197a50",focus:"#1474b8",edgeBg:"#fff"};
+    const details=document.querySelector("#details");
+    function describe(id){const x=descriptions[id];if(!x)return;details.innerHTML=`<h2>${x[0]}</h2><p>${x[1]}</p><h3>Связанные понятия</h3>${x[2].map(t=>`<span class="tag">${t}</span>`).join("")}`;}
+    let cy;
+    function render(name){document.querySelector("#loading").classList.remove("hidden");document.querySelector("#graph").classList.remove("ready");if(cy)cy.destroy();cy=cytoscape({container:document.querySelector("#graph"),elements:graphs[name],wheelSensitivity:.18,minZoom:.35,maxZoom:2.2,style:[
+      {selector:"node",style:{"background-color":colors.node,"border-color":colors.line,"border-width":2,"label":"data(label)","color":colors.text,"font-size":13,"font-weight":600,"text-wrap":"wrap","text-max-width":145,"text-valign":"center","text-halign":"center","width":176,"height":62,"shape":"round-rectangle"}},
+      {selector:'node[kind="action"]',style:{"border-color":colors.accent}}, {selector:'node[kind="decision"]',style:{"shape":"diamond","border-color":colors.decision,"width":150,"height":92,"text-max-width":110}}, {selector:'node[kind="terminal"]',style:{"border-color":colors.terminal,"shape":"round-rectangle"}},
+      {selector:"edge",style:{"width":2,"line-color":colors.line,"target-arrow-color":colors.line,"target-arrow-shape":"triangle","curve-style":"taxi","taxi-direction":"downward","taxi-turn":24,"label":"data(label)","font-size":10,"color":colors.muted,"text-background-color":colors.edgeBg,"text-background-opacity":1,"text-background-padding":3,"text-rotation":"autorotate"}},
+      {selector:"node:selected",style:{"border-color":colors.focus,"border-width":4}},{selector:"edge:selected",style:{"line-color":colors.focus,"target-arrow-color":colors.focus}}
+    ]});
+      cy.on("tap","node",event=>describe(event.target.id()));
+      cy.one("layoutstop",()=>{cy.fit(undefined,52);document.querySelector("#loading").classList.add("hidden");document.querySelector("#graph").classList.add("ready");});
+      cy.layout({name:"dagre",rankDir:"TB",rankSep:64,nodeSep:42,edgeSep:18,padding:40,animate:false}).run();
     }
-
-    nodes.forEach(node => {
-      node.addEventListener("click", () => selectNode(node.dataset.node));
-      node.addEventListener("keydown", event => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          selectNode(node.dataset.node);
-        }
-      });
-    });
-
-    const svg = document.querySelector("#diagram");
-    const canvas = document.querySelector("#canvas");
-    let viewBox = { x: 0, y: 0, width: 1500, height: 1080 };
-    let dragging = false;
-    let lastPoint = null;
-
-    function applyViewBox() {
-      svg.setAttribute("viewBox", `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
-    }
-
-    function zoom(factor, centerX = viewBox.x + viewBox.width / 2, centerY = viewBox.y + viewBox.height / 2) {
-      const width = Math.min(2200, Math.max(650, viewBox.width * factor));
-      const height = width * 1080 / 1500;
-      const rx = (centerX - viewBox.x) / viewBox.width;
-      const ry = (centerY - viewBox.y) / viewBox.height;
-      viewBox = { x: centerX - width * rx, y: centerY - height * ry, width, height };
-      applyViewBox();
-    }
-
-    document.querySelector('[data-zoom="in"]').addEventListener("click", () => zoom(.82));
-    document.querySelector('[data-zoom="out"]').addEventListener("click", () => zoom(1.22));
-    document.querySelector("#fit").addEventListener("click", () => {
-      viewBox = { x: 0, y: 0, width: 1500, height: 1080 };
-      applyViewBox();
-    });
-    canvas.addEventListener("wheel", event => {
-      event.preventDefault();
-      const point = svg.createSVGPoint();
-      point.x = event.clientX;
-      point.y = event.clientY;
-      const local = point.matrixTransform(svg.getScreenCTM().inverse());
-      zoom(event.deltaY > 0 ? 1.12 : .88, local.x, local.y);
-    }, { passive: false });
-    canvas.addEventListener("pointerdown", event => {
-      if (event.target.closest(".node")) return;
-      dragging = true;
-      lastPoint = { x: event.clientX, y: event.clientY };
-      canvas.classList.add("dragging");
-      canvas.setPointerCapture(event.pointerId);
-    });
-    canvas.addEventListener("pointermove", event => {
-      if (!dragging) return;
-      const scaleX = viewBox.width / canvas.clientWidth;
-      const scaleY = viewBox.height / canvas.clientHeight;
-      viewBox.x -= (event.clientX - lastPoint.x) * scaleX;
-      viewBox.y -= (event.clientY - lastPoint.y) * scaleY;
-      lastPoint = { x: event.clientX, y: event.clientY };
-      applyViewBox();
-    });
-    canvas.addEventListener("pointerup", () => {
-      dragging = false;
-      canvas.classList.remove("dragging");
-    });
-
-    selectNode("start");
+    document.querySelectorAll(".view").forEach(button=>button.addEventListener("click",()=>{document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x===button));render(button.dataset.view);}));
+    document.querySelector("#fit").onclick=()=>cy.fit(undefined,52);document.querySelector("#zoom-in").onclick=()=>cy.zoom({level:Math.min(cy.maxZoom(),cy.zoom()*1.2),renderedPosition:{x:cy.width()/2,y:cy.height()/2}});document.querySelector("#zoom-out").onclick=()=>cy.zoom({level:Math.max(cy.minZoom(),cy.zoom()/1.2),renderedPosition:{x:cy.width()/2,y:cy.height()/2}});
+    new ResizeObserver(()=>{if(cy){cy.resize();cy.fit(undefined,52);}}).observe(document.querySelector(".graph-shell"));
+    describe("start");render("main");
   </script>
 </body>
 </html>

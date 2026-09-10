@@ -1,0 +1,105 @@
+@startuml
+!pragma layout smetana
+title HHRaiser — отбор уникальных вакансий
+
+top to bottom direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam ArrowColor #64748B
+skinparam ArrowThickness 1.4
+skinparam linetype ortho
+skinparam rectangle {
+  BackgroundColor #F8FAFC
+  BorderColor #94A3B8
+  FontColor #1E293B
+  RoundCorner 10
+}
+skinparam frame {
+  BackgroundColor #F8FAFC
+  BorderColor #CBD5E1
+  FontColor #475569
+}
+
+frame "1 · ОХВАТ ПОИСКА" as SearchStage {
+  rectangle "Rotation\nВыбрать запрос" as Query #ECFDF5
+  rectangle "Rotation\nВыбрать новую страницу" as Page
+  rectangle "Playwright / HH\nПрименить INI-фильтры" as Search
+  rectangle "Playwright\nСобрать публичные ID\nи передать к шагу 2" as Discover
+
+  Query -right-> Page
+  Page -right-> Search
+  Search -right-> Discover
+}
+
+frame "2 · ДЕДУПЛИКАЦИЯ И ОЦЕНКА" as SelectionStage {
+  rectangle "SQLite\nПроверить поколение\nи revisit_after_days" as History
+  rectangle "Кандидат\nдоступен?" as Eligible #FFF7E8
+  rectangle "Matcher\nВычислить score 0–100" as Matcher
+  rectangle "score ≥\nmatch_threshold?" as Accepted #FFF7E8
+  rectangle "Допустить вакансию\nк просмотру · шаг 3" as Allowed #ECFDF5
+
+  History -right-> Eligible
+  Eligible -right-> Matcher : да
+  Matcher -right-> Accepted
+  Accepted -right-> Allowed : да
+
+  note bottom of Eligible #ECFDF5
+    нет → пополнить выборку · шаг 4
+  end note
+  note bottom of Accepted #ECFDF5
+    нет → сохранить оценку
+    и проверить следующего кандидата
+  end note
+}
+
+frame "3 · СОДЕРЖАТЕЛЬНЫЙ ПРОСМОТР" as ViewStage {
+  rectangle "Playwright / HH\nОткрыть и прокрутить" as View #FFEFF1
+  rectangle "Playwright\nВыдержать паузу" as Dwell
+  rectangle "SQLite\nОтметить просмотр" as SaveView
+  rectangle "Набрано 10\nпросмотров?" as Target #FFF7E8
+  rectangle "Отчёт\nЗаписать одну сводку" as Summary #ECFDF5
+  rectangle "Продолжить отбор\nиз текущей выборки" as ContinueViewing #ECFDF5
+
+  View -right-> Dwell
+  Dwell -right-> SaveView
+  SaveView -right-> Target
+  Target -right-> Summary : да
+  Target -down-> ContinueViewing : нет
+}
+
+frame "4 · ПОПОЛНЕНИЕ ВЫБОРКИ" as ExhaustionStage {
+  rectangle "Покрыты страницы\nтекущего запроса?" as QueryDone #FFF7E8
+  rectangle "Следующая страница\nвернуться к шагу 1" as NextPage #ECFDF5
+  rectangle "Есть другой\nзапрос?" as HasQuery #FFF7E8
+  rectangle "Другой запрос\nвернуться к шагу 1" as NextQuery #ECFDF5
+  rectangle "reset_on_exhaustion?" as Reset #FFF7E8
+  rectangle "SQLite: новое поколение\nвернуться к шагу 1" as Generation #FFEFF1
+  rectangle "Scheduler\nЖдать следующий цикл" as Wait #ECFDF5
+
+  QueryDone -right-> HasQuery : да
+  QueryDone -down-> NextPage : нет
+  HasQuery -down-> NextQuery : да
+  HasQuery -right-> Reset : нет
+  Reset -right-> Generation : да
+  Reset -down-> Wait : нет
+}
+
+Discover -down-> History
+Allowed -[hidden]down-> View
+Summary -[hidden]right-> QueryDone
+
+note bottom of ExhaustionStage
+  История общая для всех запросов. Исчерпание — это отсутствие
+  допустимых кандидатов после покрытия наблюдаемой пагинации;
+  отдельного сигнала «вакансии закончились» от HH нет.
+end note
+
+legend right
+  Первая строка блока — компонент, остальные — действие.
+  Бежевый фон: условие выбора маршрута.
+  Розовый фон: действие с внешним состоянием.
+  Зелёный фон: переход, итог или ожидание.
+endlegend
+@enduml

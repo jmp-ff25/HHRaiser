@@ -1,0 +1,92 @@
+@startuml
+title HHRaiser — обзор непрерывного цикла
+
+top to bottom direction
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam ArrowColor #64748B
+skinparam ArrowThickness 1.4
+skinparam linetype ortho
+skinparam rectangle {
+  BackgroundColor #F8FAFC
+  BorderColor #94A3B8
+  FontColor #1E293B
+  RoundCorner 10
+}
+skinparam frame {
+  BackgroundColor #F8FAFC
+  BorderColor #CBD5E1
+  FontColor #475569
+}
+skinparam diamond {
+  BackgroundColor #FFF7E8
+  BorderColor #C27A12
+  FontColor #1E293B
+}
+
+frame "1 · ЗАПУСК И СЕССИЯ" as Startup {
+  rectangle "Владелец\nЗапустить CLI" as Start #ECFDF5
+  rectangle "Оркестратор\nЗагрузить INI и состояние" as Config
+  rectangle "Playwright\nЗапустить Chromium" as Browser
+  rectangle "Сессия\nподтверждена?" as Auth #FFF7E8
+  rectangle "Владелец\nПройти проверку HH" as Confirm #FFF7E8
+  rectangle "Рабочая сессия" as Session #ECFDF5
+
+  Start -right-> Config
+  Config -right-> Browser
+  Browser -right-> Auth
+  Auth -right-> Session : да
+  Auth -down-> Confirm : нет
+  Confirm -right-> Session
+}
+
+frame "2 · ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА РЕЗЮМЕ" as Resume {
+  rectangle "Playwright / HH\nПроверить поднятие" as Raise
+  rectangle "Поднять только при available\nи сохранить cooldown" as RaiseAction #FFEFF1
+  rectangle "Пора обновить\nверсию?" as RefreshDue #FFF7E8
+  rectangle "Выполнить очередную\nобратимую фазу" as Refresh #FFEFF1
+
+  Raise -right-> RaiseAction
+  RaiseAction -right-> RefreshDue
+  RefreshDue -right-> Refresh : да
+}
+
+frame "3 · ДОПОЛНИТЕЛЬНАЯ АКТИВНОСТЬ" as Activity {
+  rectangle "Пора выполнить\nактивность?" as ActivityDue #FFF7E8
+  rectangle "Подпроцесс\nОтбор и просмотр вакансий" as Vacancy #FFEFF1
+  rectangle "SQLite / JSONL\nЗаписать результаты" as Report
+  rectangle "Оркестратор\nПроверить структуру резюме" as Review
+
+  ActivityDue -right-> Vacancy : да
+  Vacancy -right-> Report
+  Report -right-> Review
+  ActivityDue -down-> Review : нет
+}
+
+frame "4 · ПЛАНИРОВАНИЕ И ЗАВЕРШЕНИЕ" as Schedule {
+  rectangle "Scheduler\nВыбрать ближайший таймер" as Timer
+  rectangle "Playwright\nПрерываемое ожидание" as Wait
+  rectangle "Браузер\nоткрыт?" as Alive #FFF7E8
+  rectangle "Следующий оборот\nс проверки поднятия" as Next #ECFDF5
+  rectangle "Штатно завершить\nбез автоперезапуска" as Stop #FDECEC
+
+  Timer -right-> Wait
+  Wait -right-> Alive
+  Alive -right-> Next : да
+  Alive -down-> Stop : нет
+}
+
+Session -down-> Raise
+RefreshDue -down-> ActivityDue : нет
+Refresh -down-> ActivityDue
+Review -down-> Timer
+
+legend right
+  Компонент указан первой строкой действия.
+  Розовый фон: изменяющее действие или подпроцесс.
+  Бежевый фон: условие или ручное подтверждение.
+  Зелёный фон: начало либо продолжение цикла.
+endlegend
+@enduml
