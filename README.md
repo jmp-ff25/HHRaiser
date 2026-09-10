@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/hhraiser-logo.png" alt="Логотип HHRaiser: резюме, превращающееся в направленную вверх стрелку" width="220">
+
 # HHRaiser
 
 **Локальный менеджер активности и актуальности личного резюме на HH.ru**
