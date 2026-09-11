@@ -25,7 +25,7 @@ class ConfigTests(unittest.TestCase):
                 "excluded_words =\n    senior\n    аналитик\n"
                 "search_fields =\n    name\n"
                 "experience =\n    between1And3\n    between3And6\n"
-                "areas =\n    1\n    2019\n"
+                "areas =\n    Москва\n    Санкт-Петербург\n"
                 "[matching]\nenabled = false\nthreshold = 67\n"
                 "[responses]\nenabled = true\n",
                 encoding="utf-8",
@@ -51,7 +51,7 @@ class ConfigTests(unittest.TestCase):
                 ExperienceLevel.BETWEEN_THREE_AND_SIX,
             ),
         )
-        self.assertEqual(config.search_filters.areas, ("1", "2019"))
+        self.assertEqual(config.search_filters.areas, ("Москва", "Санкт-Петербург"))
 
     def test_rejects_unknown_search_filter_value(self) -> None:
         with TemporaryDirectory() as directory:

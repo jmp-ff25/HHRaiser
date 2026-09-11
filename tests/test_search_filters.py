@@ -19,7 +19,7 @@ class SearchUrlTests(unittest.TestCase):
                     ExperienceLevel.BETWEEN_ONE_AND_THREE,
                     ExperienceLevel.BETWEEN_THREE_AND_SIX,
                 ),
-                areas=("1", "2019"),
+                area_ids=("1", "2"),
             ),
         )
 
@@ -32,7 +32,7 @@ class SearchUrlTests(unittest.TestCase):
             parameters["experience"],
             ["between1And3", "between3And6"],
         )
-        self.assertEqual(parameters["area"], ["1", "2019"])
+        self.assertEqual(parameters["area"], ["1", "2"])
 
     def test_empty_filters_preserve_legacy_search_url(self) -> None:
         url = build_search_url(query="Backend", page=0, filters=SearchFilters())
@@ -46,6 +46,15 @@ class SearchUrlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             SearchFilters(excluded_words=("senior\nlead",))
 
-    def test_rejects_invalid_area_id(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive HH region IDs"):
-            SearchFilters(areas=("Москва",))
+    def test_accepts_human_readable_area_name(self) -> None:
+        filters = SearchFilters(areas=("Москва",))
+
+        self.assertEqual(filters.areas, ("Москва",))
+
+    def test_rejects_search_with_unresolved_area_name(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be resolved"):
+            build_search_url(
+                query="Python",
+                page=0,
+                filters=SearchFilters(areas=("Москва",)),
+            )

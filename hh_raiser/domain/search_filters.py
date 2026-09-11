@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 
@@ -25,6 +25,7 @@ class SearchFilters:
     search_fields: tuple[SearchField, ...] = ()
     experience: tuple[ExperienceLevel, ...] = ()
     areas: tuple[str, ...] = ()
+    area_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.excluded_words) > 50:
@@ -34,5 +35,12 @@ class SearchFilters:
                 raise ValueError("excluded_words must contain short single-line values")
         if len(self.areas) > 50:
             raise ValueError("areas cannot contain more than 50 values")
-        if any(not area.isdecimal() or int(area) <= 0 for area in self.areas):
-            raise ValueError("areas must contain positive HH region IDs")
+        for area in self.areas:
+            if not area.strip() or len(area) > 150 or any(char in area for char in "\r\n"):
+                raise ValueError("areas must contain short single-line region names")
+        if any(not area_id.isdecimal() or int(area_id) <= 0 for area_id in self.area_ids):
+            raise ValueError("area_ids must contain positive HH region IDs")
+
+    def with_area_ids(self, area_ids: tuple[str, ...]) -> SearchFilters:
+        """Return the same user filters with runtime-resolved HH region IDs."""
+        return replace(self, area_ids=area_ids)

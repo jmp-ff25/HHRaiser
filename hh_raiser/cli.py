@@ -30,6 +30,7 @@ from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
+from hh_raiser.infrastructure.hh.area_resolver import AreaResolutionError, resolve_current_areas
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER, configure_logging
 from hh_raiser.models import MOSCOW, PROFILE_URL
@@ -477,6 +478,18 @@ def main(argv: list[str] | None = None) -> int:
     args.match_threshold = settings.match_threshold
     args.auto_respond = settings.auto_respond
     args.search_filters = settings.search_filters
+    if args.full_activity and args.search_filters.areas:
+        try:
+            resolved_areas = resolve_current_areas(args.search_filters.areas)
+        except AreaResolutionError as error:
+            parser.error(str(error))
+        args.search_filters = args.search_filters.with_area_ids(
+            tuple(area.area_id for area in resolved_areas)
+        )
+        LOGGER.info(
+            "Регионы поиска распознаны по актуальному справочнику HH: %s.",
+            ", ".join(area.name for area in resolved_areas),
+        )
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:
         generation = args.vacancy_history.advance_generation()
