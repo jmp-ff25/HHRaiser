@@ -3,19 +3,11 @@ version: "3"
 vars:
   CONFIG_FILE: hh-config.ini
   CREDENTIALS_FILE: hh-credentials.ini
-  ACTIVITY_INTERVAL_SECONDS: "300"
-  RESUME_INDEX_REFRESH_SECONDS: "1800"
-  MATCH_THRESHOLD: "65"
   COMMON_ARGS: >-
     --config-file "{{.CONFIG_FILE}}"
     --credentials-file "{{.CREDENTIALS_FILE}}"
-  ACTIVITY_ARGS: >-
-    --full-activity
-    --activity-interval-seconds {{.ACTIVITY_INTERVAL_SECONDS}}
-    --match-threshold {{.MATCH_THRESHOLD}}
-  RESUME_REFRESH_ARGS: >-
-    --resume-index-refresh
-    --resume-index-refresh-seconds {{.RESUME_INDEX_REFRESH_SECONDS}}
+  ACTIVITY_ARGS: --full-activity
+  RESUME_REFRESH_ARGS: --resume-index-refresh
   RESPONSE_ARGS: --auto-respond
 
 tasks:
