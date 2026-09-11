@@ -19,6 +19,7 @@ const icons: Record<NodeKind, typeof Play> = {
 
 export function ArchitectureNode({ data, selected }: NodeProps<ArchitectureNodeType>) {
   const Icon = icons[data.kind];
+  if (data.section) return <div className="section-heading">{data.title}</div>;
 
   return (
     <article className={`architecture-node kind-${data.kind}${selected ? " is-selected" : ""}`}>
@@ -31,6 +32,15 @@ export function ArchitectureNode({ data, selected }: NodeProps<ArchitectureNodeT
       </header>
       <h3>{data.title}</h3>
       <p>{data.summary}</p>
+      <div className="node-transitions">
+        {data.transitions?.map(link => (
+          <button key={link.target + link.label} type="button" className="nodrag nopan"
+            onClick={event => {
+              event.stopPropagation();
+              window.dispatchEvent(new CustomEvent("architecture-navigate", { detail: link.target }));
+            }}>{link.label}</button>
+        ))}
+      </div>
       <span className="node-open">Открыть описание</span>
       <Handle type="source" position={Position.Right} isConnectable={false} />
     </article>

@@ -44,10 +44,21 @@ function Diagram() {
   const view = getArchitectureView(viewId);
 
   useEffect(() => {
+    const navigate = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (!view.nodes.some(n => n.id === id)) return;
+      setSelectedId(id);
+      fitView({ nodes: [{ id }], maxZoom: 1, padding: 0.5, duration: 350 });
+    };
+    window.addEventListener("architecture-navigate", navigate);
+    return () => window.removeEventListener("architecture-navigate", navigate);
+  }, [view, fitView]);
+
+  useEffect(() => {
     let active = true;
     setLayoutReady(false);
     setSelectedId((current) => view.nodes.some((item) => item.id === current) ? current : "");
-    layoutArchitecture(view.nodes, view.edges).then((result) => {
+    layoutArchitecture(view).then((result) => {
       if (!active) return;
       setNodes(result.nodes);
       setEdges(result.edges);
@@ -92,7 +103,7 @@ function Diagram() {
       ...(item.data.tags ?? []),
       ...(item.data.configKeys ?? []),
     ].join(" ").toLocaleLowerCase("ru");
-    const dimmed = normalizedQuery.length > 0 && !haystack.includes(normalizedQuery);
+    const dimmed = !item.data.section && normalizedQuery.length > 0 && !haystack.includes(normalizedQuery);
     return {
       ...item,
       selected: item.id === selectedId,
@@ -101,8 +112,8 @@ function Diagram() {
   });
   const selectedNode = nodes.find((item) => item.id === selectedId);
   const matchCount = normalizedQuery
-    ? visibleNodes.filter((item) => item.className !== "is-dimmed").length
-    : nodes.length;
+    ? visibleNodes.filter((item) => !item.data.section && item.className !== "is-dimmed").length
+    : view.nodes.length;
 
   return (
     <Tooltip.Provider delayDuration={320}>
@@ -154,7 +165,7 @@ function Diagram() {
                   />
                   <kbd>/</kbd>
                 </label>
-                <span className="match-count">{matchCount} из {nodes.length}</span>
+                <span className="match-count">{matchCount} из {view.nodes.length}</span>
                 <ToolbarButton label="Вписать схему" onClick={() => fitView({ padding: 0.18, duration: 450 })}>
                   <Focus size={18} />
                 </ToolbarButton>
@@ -172,7 +183,7 @@ function Diagram() {
                 nodes={visibleNodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
-                onNodeClick={(_, item) => setSelectedId(item.id)}
+                onNodeClick={(_, item) => { if (!item.data.section) setSelectedId(item.id); }}
                 onPaneClick={() => setSelectedId("")}
                 nodesDraggable={false}
                 nodesConnectable={false}

@@ -21,6 +21,8 @@ export interface ArchitectureNodeData extends Record<string, unknown> {
   configKeys?: string[];
   codeLinks?: CodeLink[];
   tags?: string[];
+  section?: boolean;
+  transitions?: { target: string; label: string }[];
 }
 
 export type ArchitectureNode = Node<ArchitectureNodeData, "architecture">;
@@ -33,4 +35,5 @@ export interface ArchitectureView {
   description: string;
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
+  sections?: { title: string; nodes: string[] }[];
 }

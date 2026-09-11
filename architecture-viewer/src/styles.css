@@ -263,7 +263,12 @@ kbd { padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px; bac
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.react-flow__node-architecture { width: 228px; height: 104px; }
+.react-flow__node-architecture { width: 250px; height: 180px; }
+.section-heading { color: var(--muted-strong); font-size: 16px; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.node-transitions { display: grid; gap: 4px; margin-top: 8px; }
+.node-transitions button { text-align: left; color: var(--blue); background: var(--surface-soft); border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; font-size: 10px; line-height: 1.35; cursor: pointer; }
+.node-transitions button:hover { border-color: var(--blue); }
+.node-transitions button:focus-visible { outline: 2px solid var(--blue); }
 .react-flow__node-architecture.is-dimmed { opacity: .16; filter: grayscale(.8); }
 
 .architecture-node {

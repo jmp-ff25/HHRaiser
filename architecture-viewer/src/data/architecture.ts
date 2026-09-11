@@ -180,13 +180,14 @@ const lifecycle: ArchitectureView = {
     edge("l5", "raise", "due"),
     edge("l6", "due", "activities", "активность"),
     edge("l7", "due", "refresh", "версия"),
-    edge("l8", "due", "review", "проверка"),
-    edge("l9", "activities", "wait"),
+    edge("l8", "due", "wait", "ещё рано"),
+    edge("l9", "activities", "review"),
     edge("l10", "refresh", "wait"),
     edge("l11", "review", "wait"),
     edge("l12", "wait", "alive"),
     edge("l13", "alive", "raise", "да"),
     edge("l14", "alive", "stop", "нет"),
+    edge("l15", "auth", "stop", "вход не завершён"),
   ],
 };
 
@@ -301,11 +302,13 @@ const vacancyFlow: ArchitectureView = {
     edge("v5", "match", "view", "да"),
     edge("v6", "match", "persist", "ниже порога"),
     edge("v7", "view", "respond", "если включено"),
-    edge("v8", "view", "persist", "без откликов"),
+    edge("v8", "view", "persist", "без откликов / ошибка"),
     edge("v9", "respond", "persist"),
     edge("v10", "persist", "target"),
-    edge("v11", "target", "query", "продолжить"),
+    edge("v11", "target", "history", "есть кандидаты"),
     edge("v12", "target", "summary", "готово"),
+    edge("v13", "target", "query", "нужна страница"),
+    edge("v14", "history", "target", "повтор / резерв"),
   ],
 };
 
@@ -372,9 +375,9 @@ const historyFlow: ArchitectureView = {
   ],
   edges: [
     edge("h1", "coverage", "pages"),
-    edge("h2", "pages", "coverage", "нет"),
+    edge("h2", "pages", "resume", "нет"),
     edge("h3", "pages", "queries", "да"),
-    edge("h4", "queries", "coverage", "остались запросы"),
+    edge("h4", "queries", "resume", "остались запросы"),
     edge("h5", "queries", "policy", "все исчерпаны"),
     edge("h6", "policy", "generation", "да"),
     edge("h7", "policy", "idle", "нет"),
@@ -453,15 +456,77 @@ const boundaries: ArchitectureView = {
   edges: [
     edge("b1", "owner", "cli", "запуск и настройки"),
     edge("b2", "cli", "orchestrator"),
-    edge("b3", "orchestrator", "domain", "политики"),
+    edge("b3", "activities", "domain", "политики"),
     edge("b4", "orchestrator", "activities"),
     edge("b5", "activities", "hh"),
     edge("b6", "activities", "playwright"),
     edge("b7", "activities", "storage"),
-    edge("b8", "hh", "site"),
+    edge("b8", "hh", "playwright", "локаторы"),
     edge("b9", "playwright", "site"),
   ],
 };
+
+lifecycle.sections = [
+  { title: "Запуск и вход", nodes: ["start", "browser", "auth", "modal"] },
+  { title: "Каждый оборот: поднятие и выбор действия", nodes: ["raise", "due", "refresh"] },
+  { title: "Цикл активности, если наступило его время", nodes: ["activities", "review"] },
+  { title: "Ожидание и завершение", nodes: ["wait", "alive", "stop"] },
+];
+vacancyFlow.sections = [
+  { title: "Подготовить страницу выдачи", nodes: ["query", "search", "collect"] },
+  { title: "Обработать кандидатов страницы", nodes: ["history", "match", "view", "respond"] },
+  { title: "Учесть исход и продолжить цикл", nodes: ["persist", "target", "summary"] },
+];
+historyFlow.sections = [
+  { title: "Проверить полноту обхода", nodes: ["coverage", "pages", "queries"] },
+  { title: "Решить, разрешён ли новый обход", nodes: ["policy", "generation", "cooldown"] },
+  { title: "Продолжить работу или ждать следующего цикла", nodes: ["resume", "idle"] },
+];
+boundaries.sections = [
+  { title: "Управление: кто запускает сценарии", nodes: ["owner", "cli", "orchestrator", "activities"] },
+  { title: "Работа с сайтом: используемые зависимости", nodes: ["hh", "playwright", "site"] },
+  { title: "Правила и сохранение данных — зависимости сценариев", nodes: ["domain", "storage"] },
+];
+
+// Keep established node IDs so existing deep links and code references remain valid.
+function describe(view: ArchitectureView, id: string, details: Partial<ArchitectureNodeData>) {
+  const item = view.nodes.find(n => n.id === id)!;
+  item.data = { ...item.data, ...details };
+}
+describe(lifecycle, "due", {
+  summary: "Версия, активность или ожидание",
+  responsibility: "После проверки поднятия сравнивает сроки дополнительных действий. Если пора обновить версию резюме, выполняет этот шаг первым. Иначе запускает наступивший цикл активности. Если ничего не наступило, переходит к ожиданию. Проверка структуры резюме входит в конец активности, собственного таймера у неё нет.",
+});
+describe(lifecycle, "auth", { retry: "В видимом браузере владелец завершает вход; если вход не завершён, рабочие действия не начинаются. CAPTCHA автоматически не решается." });
+describe(vacancyFlow, "search", {
+  responsibility: "Открывает страницу выдачи с выбранным запросом, исключающими словами, областью поиска и опытом из INI. Читает карточки и доступную пагинацию.",
+  configKeys: ["search_queries", "excluded_words", "search_fields", "experience"],
+});
+describe(vacancyFlow, "history", {
+  summary: "Отобрать и зарезервировать новые ID",
+  responsibility: "Перед просмотром сравнивает кандидатов страницы с SQLite: исключает уже обработанные, недавние и зарезервированные вакансии. Резервирует подходящие ID и последовательно передаёт их на оценку. Если кандидатов не осталось, цикл проверяет бюджет и при необходимости выбирает следующую страницу.",
+});
+describe(vacancyFlow, "persist", {
+  summary: "Записи делаются после каждого шага",
+  responsibility: "Этот блок обобщает несколько точек записи, а не откладывает всё до конца. После оценки сохраняются баллы и решение, после успешного просмотра — его факт, после отклика — его исход. В конце цикла формируются JSONL и Excel. Ошибка просмотра не считается успешным просмотром; анкета пропускает только отклик.",
+});
+describe(vacancyFlow, "target", {
+  title: "Что дальше?", summary: "Кандидат, страница или сводка",
+  responsibility: "Сначала продолжает обработку оставшихся отобранных кандидатов текущей страницы. Когда они закончились, выбирает следующую страницу, если число успешных просмотров ещё не достигнуто и бюджет страниц не исчерпан. Иначе завершает цикл. Пропущенный отклик не останавливает очередь и не отменяет успешный просмотр.",
+});
+describe(historyFlow, "pages", {
+  success: "Установлено, есть ли у запроса непроверенные страницы. Полный обход страниц не доказывает обработку всех карточек: число выбранных вакансий ограничено бюджетом цикла.",
+});
+describe(historyFlow, "policy", {
+  responsibility: "При исчерпании всех запросов новый обход разрешён настройкой reset_on_exhaustion и может начаться не более одного раза за цикл активности. Отдельно в начале цикла проверяется unique_vacancy_limit: достижение лимита также начинает новый обход. История откликов при этом сохраняется.",
+});
+describe(historyFlow, "resume", {
+  success: "Поиск продолжается на доступных страницах. При новом обходе недавно просмотренные вакансии всё ещё исключаются сроком revisit_after_days; отклик с известным исходом повторно не выполняется.",
+});
+boundaries.description = "Стрелки и переходы обозначают использование компонентов, а не очередность запуска. Связи между рядами открываются нажатием.";
+lifecycle.description = "Читайте этапы сверху вниз, блоки — слева направо. Подписанные переходы заменяют длинные обратные стрелки.";
+vacancyFlow.description = "Одна страница → кандидаты → исходы. Кнопки переходов показывают ветвления и возвраты без пересекающихся линий.";
+historyFlow.description = "Отдельно показаны полнота обхода, разрешение нового прохода и срок до повторного просмотра.";
 
 export const architectureViews: ArchitectureView[] = [
   lifecycle,
