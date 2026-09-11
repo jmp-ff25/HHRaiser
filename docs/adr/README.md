@@ -10,3 +10,4 @@ ADR фиксируют существенные архитектурные ре�
 - [ADR-0001: объяснимое сопоставление вакансии с резюме](0001-explainable-vacancy-matching.md)
 - [ADR-0002: разрешённый список поисковых фильтров HH](0002-allowlisted-search-filters.md)
 - [ADR-0003: кроссплатформенные команды Task и окружение uv](0003-task-and-uv-tooling.md)
+- [ADR-0004: безопасные отклики и журнал результатов](0004-safe-vacancy-responses.md)

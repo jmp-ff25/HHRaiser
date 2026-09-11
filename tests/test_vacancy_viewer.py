@@ -9,6 +9,7 @@ from hh_raiser.domain.matching import MatchAssessment
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityStatus
 from hh_raiser.infrastructure.hh.selectors import (
+    VACANCY_COMPANY_NAME,
     VACANCY_DESCRIPTION,
     VACANCY_HEADING,
     VACANCY_SKILL,
@@ -48,6 +49,7 @@ class FakeVacancyPage:
     def __init__(self) -> None:
         self.heading = FakeLocator("Водитель-экспедитор")
         self.description = FakeLocator("Доставка грузов и обслуживание автомобиля")
+        self.company = FakeLocator("Транспортная компания")
         self.skills = FakeLocator(texts=["Водительское удостоверение"])
         self.body = FakeLocator()
         self.wait_calls: list[int] = []
@@ -62,6 +64,7 @@ class FakeVacancyPage:
         return {
             VACANCY_HEADING: self.heading,
             VACANCY_DESCRIPTION: self.description,
+            VACANCY_COMPANY_NAME: self.company,
             VACANCY_SKILL: self.skills,
             "body": self.body,
         }[selector]

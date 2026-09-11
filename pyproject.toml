@@ -13,6 +13,7 @@ authors = [
 ]
 dependencies = [
     "playwright>=1.62,<2",
+    "xlsxwriter>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -32,3 +33,4 @@ include = ["hh_raiser*"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = [".agents"]

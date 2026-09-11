@@ -9,7 +9,14 @@ PAGINATION_LINK = 'a[data-qa^="pager-"]'
 VACANCY_HEADING = '[data-qa="vacancy-title"]'
 VACANCY_DESCRIPTION = '[data-qa="vacancy-description"]'
 VACANCY_SKILL = '[data-qa="skills-element"]'
-RESPOND_BUTTON = '[data-qa*="vacancy-response"]'
+VACANCY_COMPANY_NAME = '[data-qa="vacancy-company-name"]'
+RESPOND_BUTTON = '[data-qa="vacancy-response-link-top"]'
+RESPONSE_SUBMIT_BUTTON = '[data-qa="vacancy-response-submit-popup"]'
+RESPONSE_SUCCESS = (
+    '[data-qa="vacancy-response-success"], [data-qa="vacancy-response-link-view-topic"]'
+)
+RESPONSE_LETTER_INPUT = '[data-qa="vacancy-response-popup-form-letter-input"]'
+RESPONSE_QUESTION_INPUT = 'textarea[name^="task_"], input[name^="task_"], select[name^="task_"]'
 
 RESUME_CARD = '[data-qa="resume"]'
 RESUME_UPDATE_BUTTON = '[data-qa~="resume-update-button"]'

@@ -18,6 +18,7 @@ class ActivityPolicy:
     vacancy_view_seconds: float = 12.0
     vacancy_matching: bool = True
     match_threshold: int = 55
+    auto_respond: bool = False
     search_filters: SearchFilters = field(default_factory=SearchFilters)
 
     def __post_init__(self) -> None:

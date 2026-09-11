@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from hh_raiser.activities.resume_review import review_resume
 from hh_raiser.activities.search_page_viewer import view_search_page
+from hh_raiser.activities.vacancy_responder import respond_to_vacancy
 from hh_raiser.activities.vacancy_viewer import view_vacancies
 from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.domain.matching import VacancyCompatibilityMatcher
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.domain.vacancy_response import (
+    ManualResponseReason,
+    VacancyResponseRecord,
+    VacancyResponseStatus,
+)
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER
@@ -89,6 +96,29 @@ def run_permitted_activities(
                 if outcome.result.status is ActivityStatus.SUCCESS:
                     history.mark_viewed(outcome.url)
                     viewed_count += 1
+                    if policy.auto_respond and not history.has_response_record(outcome.url):
+                        response_result = respond_to_vacancy(
+                            page,
+                            vacancy_url=outcome.url,
+                            vacancy_title=str(
+                                outcome.result.metadata.get("vacancy_title")
+                                or "название не распознано"
+                            ),
+                        )
+                        response_result = replace(
+                            response_result,
+                            metadata={
+                                **response_result.metadata,
+                                "company_name": str(
+                                    outcome.result.metadata.get("company_name")
+                                    or "компания не распознана"
+                                ),
+                                "search_query": query,
+                                "match_score": outcome.result.metadata.get("match_score"),
+                            },
+                        )
+                        results.append(response_result)
+                        _record_response(history, response_result)
                 elif not match_evaluated:
                     history.release(outcome.url)
         finally:
@@ -97,3 +127,27 @@ def run_permitted_activities(
                     history.release(url)
     results.append(review_resume(page))
     return results
+
+
+def _record_response(history: VacancyHistory, result: ActivityResult) -> None:
+    metadata = result.metadata
+    vacancy_id = str(metadata.get("vacancy_id") or "")
+    if not vacancy_id:
+        return
+    response_status = VacancyResponseStatus(str(metadata["response_status"]))
+    manual_reason_value = metadata.get("manual_reason")
+    manual_reason = ManualResponseReason(str(manual_reason_value)) if manual_reason_value else None
+    match_score_value = metadata.get("match_score")
+    history.record_response(
+        VacancyResponseRecord(
+            vacancy_id=vacancy_id,
+            occurred_at=result.occurred_at,
+            status=response_status,
+            detail=result.detail,
+            vacancy_title=str(metadata.get("vacancy_title") or "название не распознано"),
+            company_name=str(metadata.get("company_name") or "компания не распознана"),
+            search_query=str(metadata.get("search_query") or ""),
+            match_score=int(match_score_value) if match_score_value is not None else None,
+            manual_reason=manual_reason,
+        )
+    )

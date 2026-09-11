@@ -12,6 +12,7 @@ from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.selectors import (
+    VACANCY_COMPANY_NAME,
     VACANCY_DESCRIPTION,
     VACANCY_HEADING,
     VACANCY_SKILL,
@@ -46,6 +47,8 @@ def view_vacancies(
         canonical = canonical_vacancy_url(url)
         if canonical is None:
             continue
+        vacancy_title = normalize_vacancy_title("")
+        company_name = "компания не распознана"
         try:
             page.bring_to_front()
             page.goto(canonical, wait_until="domcontentloaded")
@@ -62,6 +65,9 @@ def view_vacancies(
                 if recognized
                 else normalize_vacancy_title("")
             )
+            company = page.locator(VACANCY_COMPANY_NAME)
+            if company.count() > 0 and company.first.is_visible():
+                company_name = normalize_vacancy_title(company.first.inner_text())
             LOGGER.info(
                 "Открыта вакансия %s из %s: «%s».",
                 index,
@@ -119,6 +125,8 @@ def view_vacancies(
                                         4,
                                     ),
                                     "scrolls_completed": 0,
+                                    "vacancy_title": vacancy_title,
+                                    "company_name": company_name,
                                 },
                             ),
                         )
@@ -168,6 +176,8 @@ def view_vacancies(
                             if assessment is not None and assessment.applied
                             else None
                         ),
+                        "vacancy_title": vacancy_title,
+                        "company_name": company_name,
                     },
                 ),
             )
@@ -181,6 +191,10 @@ def view_vacancies(
                     action=ActivityKind.VIEW_VACANCY,
                     status=ActivityStatus.ERROR,
                     detail=f"Не удалось просмотреть вакансию: {error.__class__.__name__}",
+                    metadata={
+                        "vacancy_title": vacancy_title,
+                        "company_name": company_name,
+                    },
                 ),
             )
     if not yielded:

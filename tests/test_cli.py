@@ -107,6 +107,7 @@ class CliTests(unittest.TestCase):
                 "--no-vacancy-matching",
                 "--match-threshold",
                 "68",
+                "--auto-respond",
             ]
         )
         self.assertTrue(args.full_activity)
@@ -123,6 +124,12 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.reset_on_exhaustion)
         self.assertFalse(args.vacancy_matching)
         self.assertEqual(args.match_threshold, 68)
+        self.assertTrue(args.auto_respond)
+
+    def test_automatic_responses_are_opt_in(self) -> None:
+        args = build_parser().parse_args([])
+
+        self.assertIsNone(args.auto_respond)
 
     def test_activity_limits_are_bounded(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):

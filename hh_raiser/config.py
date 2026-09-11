@@ -16,6 +16,7 @@ DEFAULT_REVISIT_AFTER_DAYS = 14
 DEFAULT_RESET_ON_EXHAUSTION = True
 DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
+DEFAULT_AUTO_RESPOND = False
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class FileConfig:
     reset_on_exhaustion: bool | None = None
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
+    auto_respond: bool | None = None
     search_filters: SearchFilters = field(default_factory=SearchFilters)
 
 
@@ -41,6 +43,7 @@ class RuntimeSettings:
     reset_on_exhaustion: bool
     vacancy_matching: bool
     match_threshold: int
+    auto_respond: bool
     search_filters: SearchFilters
 
 
@@ -87,6 +90,7 @@ def read_file_config(path: Path) -> FileConfig:
         reset_on_exhaustion = parser.getboolean("activity", "reset_on_exhaustion", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
+        auto_respond = parser.getboolean("responses", "enabled", fallback=None)
         search_filters = SearchFilters(
             excluded_words=parse_search_queries(
                 parser.get("search_filters", "excluded_words", fallback="")
@@ -113,6 +117,7 @@ def read_file_config(path: Path) -> FileConfig:
         reset_on_exhaustion=reset_on_exhaustion,
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
+        auto_respond=auto_respond,
         search_filters=search_filters,
     )
 
@@ -157,6 +162,11 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "match_threshold", None)
         if getattr(args, "match_threshold", None) is not None
         else file_config.match_threshold
+    )
+    auto_respond = (
+        getattr(args, "auto_respond", None)
+        if getattr(args, "auto_respond", None) is not None
+        else file_config.auto_respond
     )
 
     if not resume_title:
@@ -213,5 +223,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             minimum=0,
             maximum=100,
         ),
+        auto_respond=(auto_respond if auto_respond is not None else DEFAULT_AUTO_RESPOND),
         search_filters=file_config.search_filters,
     )

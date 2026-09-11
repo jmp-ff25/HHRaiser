@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from hh_raiser.domain.vacancy_response import (
+    ManualResponseReason,
+    VacancyResponseRecord,
+    VacancyResponseStatus,
+)
 from hh_raiser.models import MOSCOW
 
 VACANCY_ID_PATTERN = re.compile(r"/vacancy/(\d+)$")
@@ -75,6 +80,20 @@ class VacancyHistory:
                 ON vacancies(last_viewed_generation);
                 CREATE INDEX IF NOT EXISTS idx_vacancies_reserved_until
                 ON vacancies(reserved_until);
+
+                CREATE TABLE IF NOT EXISTS vacancy_responses (
+                    vacancy_id TEXT PRIMARY KEY REFERENCES vacancies(vacancy_id),
+                    occurred_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    vacancy_title TEXT NOT NULL,
+                    company_name TEXT NOT NULL,
+                    search_query TEXT NOT NULL,
+                    match_score INTEGER,
+                    manual_reason TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status
+                ON vacancy_responses(status);
                 """
             )
             columns = {
@@ -213,6 +232,66 @@ class VacancyHistory:
                     vacancy_id,
                 ),
             )
+
+    def has_response_record(self, url: str) -> bool:
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return False
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT 1 FROM vacancy_responses WHERE vacancy_id = ?",
+                (vacancy_id,),
+            ).fetchone()
+        return row is not None
+
+    def record_response(self, record: VacancyResponseRecord) -> bool:
+        """Persist the first terminal response outcome and reject automatic retries."""
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO vacancy_responses(
+                    vacancy_id, occurred_at, status, detail, vacancy_title,
+                    company_name, search_query, match_score, manual_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.vacancy_id,
+                    record.occurred_at.isoformat(),
+                    record.status.value,
+                    record.detail,
+                    record.vacancy_title,
+                    record.company_name,
+                    record.search_query,
+                    record.match_score,
+                    record.manual_reason.value if record.manual_reason else None,
+                ),
+            )
+        return cursor.rowcount > 0
+
+    def response_records(self) -> list[VacancyResponseRecord]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT vacancy_id, occurred_at, status, detail, vacancy_title,
+                       company_name, search_query, match_score, manual_reason
+                FROM vacancy_responses
+                ORDER BY occurred_at DESC
+                """
+            ).fetchall()
+        return [
+            VacancyResponseRecord(
+                vacancy_id=str(row[0]),
+                occurred_at=datetime.fromisoformat(str(row[1])),
+                status=VacancyResponseStatus(str(row[2])),
+                detail=str(row[3]),
+                vacancy_title=str(row[4]),
+                company_name=str(row[5]),
+                search_query=str(row[6]),
+                match_score=int(row[7]) if row[7] is not None else None,
+                manual_reason=(ManualResponseReason(str(row[8])) if row[8] else None),
+            )
+            for row in rows
+        ]
 
     def release(self, url: str) -> None:
         vacancy_id = vacancy_id_from_url(url)

@@ -16,6 +16,7 @@ vars:
   RESUME_REFRESH_ARGS: >-
     --resume-index-refresh
     --resume-index-refresh-seconds {{.RESUME_INDEX_REFRESH_SECONDS}}
+  RESPONSE_ARGS: --auto-respond
 
 tasks:
   default:
@@ -111,6 +112,22 @@ tasks:
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  activity-responses:
+    desc: Просматривать вакансии и безопасно откликаться без обязательных форм
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless
+        {{.ACTIVITY_ARGS}} {{.RESPONSE_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  activity-responses-ui:
+    desc: Видимый режим просмотра и безопасных откликов
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser
+        {{.ACTIVITY_ARGS}} {{.RESPONSE_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
   full-activity:
     desc: Запустить все возможности в фоновом режиме
     cmds:
@@ -125,6 +142,22 @@ tasks:
       - >-
         uv run --locked hh-resume-raiser
         {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity-responses:
+    desc: Запустить все возможности и безопасные отклики в фоновом режиме
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --headless
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  full-activity-responses-ui:
+    desc: Запустить все возможности и безопасные отклики в видимом Chromium
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-once:

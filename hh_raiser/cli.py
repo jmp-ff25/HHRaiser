@@ -61,9 +61,39 @@ def graceful_interrupt() -> Iterator[threading.Event]:
 def log_activity_results(results: list[ActivityResult]) -> None:
     search_results = [result for result in results if result.action == ActivityKind.REVIEW_SEARCH]
     vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
+    response_results = [
+        result for result in results if result.action == ActivityKind.RESPOND_VACANCY
+    ]
     for result in results:
-        if result.action not in {ActivityKind.REVIEW_SEARCH, ActivityKind.VIEW_VACANCY}:
+        if result.action not in {
+            ActivityKind.REVIEW_SEARCH,
+            ActivityKind.VIEW_VACANCY,
+            ActivityKind.RESPOND_VACANCY,
+        }:
             LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+
+    if response_results:
+        for result in response_results:
+            if result.status in {ActivityStatus.ERROR, ActivityStatus.UNKNOWN}:
+                LOGGER.warning(
+                    "Проблема при отклике на вакансию «%s»: %s — %s",
+                    result.metadata.get("vacancy_title") or "название не распознано",
+                    result.status,
+                    result.detail,
+                )
+        response_counts = Counter(
+            str(result.metadata.get("response_status") or "unknown") for result in response_results
+        )
+        LOGGER.info(
+            "Итоги откликов: успешно — %s; требуется участие кандидата — %s; "
+            "уже отправлено — %s; недоступно — %s; неизвестный результат — %s; ошибки — %s.",
+            response_counts["sent"],
+            response_counts["manual_required"],
+            response_counts["already_sent"],
+            response_counts["unavailable"],
+            response_counts["unknown"],
+            response_counts["error"],
+        )
 
     if search_results:
         search_counts = Counter(result.status for result in search_results)
@@ -238,6 +268,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Минимальная оценка соответствия для просмотра вакансии, от 0 до 100.",
     )
     parser.add_argument(
+        "--auto-respond",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Откликаться только на вакансии без обязательной анкеты, теста, письма "
+            "или внешнего перехода. По умолчанию отключено."
+        ),
+    )
+    parser.add_argument(
         "--search-scrolls",
         type=lambda value: bounded_non_negative_int(value, maximum=20),
         default=3,
@@ -295,6 +334,7 @@ def run_browser_context(
             vacancy_view_seconds=args.vacancy_view_seconds,
             vacancy_matching=args.vacancy_matching,
             match_threshold=args.match_threshold,
+            auto_respond=args.auto_respond,
             search_filters=args.search_filters,
         )
         report_path = args.profile_dir.parent / "activity-events.jsonl"
@@ -304,6 +344,9 @@ def run_browser_context(
             rotation=VacancyRotation(queries=args.search_queries),
             history=args.vacancy_history,
             resume_title=args.resume_title,
+            response_report_path=(
+                args.profile_dir.parent / "vacancy-responses.xlsx" if args.auto_respond else None
+            ),
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -432,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     args.reset_on_exhaustion = settings.reset_on_exhaustion
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
+    args.auto_respond = settings.auto_respond
     args.search_filters = settings.search_filters
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:

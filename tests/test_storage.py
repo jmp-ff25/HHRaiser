@@ -8,6 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from hh_raiser.domain.vacancy_response import (
+    ManualResponseReason,
+    VacancyResponseRecord,
+    VacancyResponseStatus,
+)
 from hh_raiser.infrastructure.storage.vacancy_history import (
     VacancyHistory,
     vacancy_id_from_url,
@@ -153,3 +158,24 @@ class VacancyHistoryTests(unittest.TestCase):
                 history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
                 [],
             )
+
+    def test_response_outcome_is_persisted_once_and_blocks_automatic_retry(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            url = "https://hh.ru/vacancy/789"
+            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+            record = VacancyResponseRecord.now(
+                vacancy_id="789",
+                status=VacancyResponseStatus.MANUAL_REQUIRED,
+                detail="Нужна анкета.",
+                vacancy_title="Python developer",
+                company_name="Example",
+                search_query="Python",
+                match_score=75,
+                manual_reason=ManualResponseReason.QUESTIONNAIRE,
+            )
+
+            self.assertTrue(history.record_response(record))
+            self.assertFalse(history.record_response(record))
+            self.assertTrue(history.has_response_record(url))
+            self.assertEqual(history.response_records(), [record])
