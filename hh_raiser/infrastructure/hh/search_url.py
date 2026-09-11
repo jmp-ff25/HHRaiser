@@ -18,4 +18,5 @@ def build_search_url(
         parameters.append(("excluded_text", ", ".join(filters.excluded_words)))
     parameters.extend(("search_field", field.value) for field in filters.search_fields)
     parameters.extend(("experience", level.value) for level in filters.experience)
+    parameters.extend(("area", area) for area in filters.areas)
     return f"{SEARCH_URL}?{urlencode(parameters)}"

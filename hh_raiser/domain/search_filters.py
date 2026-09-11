@@ -24,6 +24,7 @@ class SearchFilters:
     excluded_words: tuple[str, ...] = ()
     search_fields: tuple[SearchField, ...] = ()
     experience: tuple[ExperienceLevel, ...] = ()
+    areas: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.excluded_words) > 50:
@@ -31,3 +32,7 @@ class SearchFilters:
         for word in self.excluded_words:
             if not word.strip() or len(word) > 100 or any(char in word for char in "\r\n"):
                 raise ValueError("excluded_words must contain short single-line values")
+        if len(self.areas) > 50:
+            raise ValueError("areas cannot contain more than 50 values")
+        if any(not area.isdecimal() or int(area) <= 0 for area in self.areas):
+            raise ValueError("areas must contain positive HH region IDs")

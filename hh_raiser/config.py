@@ -105,6 +105,7 @@ def read_file_config(path: Path) -> FileConfig:
                 ExperienceLevel,
                 option_name="search_filters.experience",
             ),
+            areas=parse_search_queries(parser.get("search_filters", "areas", fallback="")),
         )
     except ValueError as error:
         raise ValueError(f"Некорректное значение в INI-файле настроек {path}: {error}") from error

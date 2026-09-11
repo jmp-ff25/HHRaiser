@@ -19,6 +19,7 @@ class SearchUrlTests(unittest.TestCase):
                     ExperienceLevel.BETWEEN_ONE_AND_THREE,
                     ExperienceLevel.BETWEEN_THREE_AND_SIX,
                 ),
+                areas=("1", "2019"),
             ),
         )
 
@@ -31,6 +32,7 @@ class SearchUrlTests(unittest.TestCase):
             parameters["experience"],
             ["between1And3", "between3And6"],
         )
+        self.assertEqual(parameters["area"], ["1", "2019"])
 
     def test_empty_filters_preserve_legacy_search_url(self) -> None:
         url = build_search_url(query="Backend", page=0, filters=SearchFilters())
@@ -43,3 +45,7 @@ class SearchUrlTests(unittest.TestCase):
     def test_rejects_multiline_excluded_word(self) -> None:
         with self.assertRaises(ValueError):
             SearchFilters(excluded_words=("senior\nlead",))
+
+    def test_rejects_invalid_area_id(self) -> None:
+        with self.assertRaisesRegex(ValueError, "positive HH region IDs"):
+            SearchFilters(areas=("Москва",))
