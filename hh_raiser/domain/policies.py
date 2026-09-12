@@ -19,6 +19,7 @@ class ActivityPolicy:
     vacancy_matching: bool = True
     match_threshold: int = 55
     auto_respond: bool = False
+    daily_response_limit: int = 0
     search_filters: SearchFilters = field(default_factory=SearchFilters)
 
     def __post_init__(self) -> None:
@@ -40,3 +41,5 @@ class ActivityPolicy:
             raise ValueError("vacancy_view_seconds must be between 0 and 300")
         if not 0 <= self.match_threshold <= 100:
             raise ValueError("match_threshold must be between 0 and 100")
+        if not 0 <= self.daily_response_limit <= 1_000:
+            raise ValueError("daily_response_limit must be between 0 and 1000")

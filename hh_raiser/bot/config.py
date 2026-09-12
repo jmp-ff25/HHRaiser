@@ -113,10 +113,24 @@ def _read_instances(
         state_dir = Path(raw_state_dir).expanduser()
         if not state_dir.is_absolute():
             state_dir = config_path.parent / state_dir
+        state_dir = state_dir.resolve()
+        raw_config_file = parser.get(section, "config_file", fallback="").strip()
+        config_file = (
+            Path(raw_config_file).expanduser() if raw_config_file else state_dir / "hh-config.ini"
+        )
+        if not config_file.is_absolute():
+            config_file = config_path.parent / config_file
+        config_file = config_file.resolve()
+        if not config_file.is_relative_to(state_dir):
+            raise BotConfigError(
+                f"{section}.config_file должен находиться внутри state_dir, чтобы бот "
+                "не мог изменять произвольные файлы."
+            )
         instances[key] = ManagedInstance(
             key=key,
             name=name,
             service_name=service_name,
-            state_dir=state_dir.resolve(),
+            state_dir=state_dir,
+            config_file=config_file,
         )
     return instances

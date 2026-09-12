@@ -27,7 +27,7 @@ class ConfigTests(unittest.TestCase):
                 "experience =\n    between1And3\n    between3And6\n"
                 "areas =\n    Москва\n    Санкт-Петербург\n"
                 "[matching]\nenabled = false\nthreshold = 67\n"
-                "[responses]\nenabled = true\n",
+                "[responses]\nenabled = true\ndaily_limit = 25\n",
                 encoding="utf-8",
             )
 
@@ -42,6 +42,7 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.vacancy_matching)
         self.assertEqual(config.match_threshold, 67)
         self.assertTrue(config.auto_respond)
+        self.assertEqual(config.daily_response_limit, 25)
         self.assertEqual(config.search_filters.excluded_words, ("senior", "аналитик"))
         self.assertEqual(config.search_filters.search_fields, (SearchField.VACANCY_NAME,))
         self.assertEqual(

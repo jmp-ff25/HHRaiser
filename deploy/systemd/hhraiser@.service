@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/hhraiser
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --config-file /etc/hhraiser/%i.ini --credentials-file /etc/hhraiser/%i-credentials.ini --profile-dir /var/lib/hhraiser/%i/browser-profile
+ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --config-file /var/lib/hhraiser/%i/hh-config.ini --credentials-file /etc/hhraiser/%i-credentials.ini --profile-dir /var/lib/hhraiser/%i/browser-profile
 KillSignal=SIGINT
 TimeoutStopSec=60
 Restart=no

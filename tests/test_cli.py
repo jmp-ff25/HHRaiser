@@ -108,6 +108,8 @@ class CliTests(unittest.TestCase):
                 "--match-threshold",
                 "68",
                 "--auto-respond",
+                "--daily-response-limit",
+                "25",
             ]
         )
         self.assertTrue(args.full_activity)
@@ -125,6 +127,7 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.vacancy_matching)
         self.assertEqual(args.match_threshold, 68)
         self.assertTrue(args.auto_respond)
+        self.assertEqual(args.daily_response_limit, 25)
 
     def test_automatic_responses_are_opt_in(self) -> None:
         args = build_parser().parse_args([])

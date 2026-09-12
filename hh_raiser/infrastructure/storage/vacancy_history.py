@@ -94,6 +94,8 @@ class VacancyHistory:
                 );
                 CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status
                 ON vacancy_responses(status);
+                CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status_time
+                ON vacancy_responses(status, occurred_at);
                 """
             )
             columns = {
@@ -292,6 +294,26 @@ class VacancyHistory:
             )
             for row in rows
         ]
+
+    def sent_response_count_today(self, *, now: datetime | None = None) -> int:
+        """Count successful responses for the current Moscow calendar day."""
+
+        current = (now or datetime.now(MOSCOW)).astimezone(MOSCOW)
+        day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = day_start + timedelta(days=1)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) FROM vacancy_responses
+                WHERE status = ? AND occurred_at >= ? AND occurred_at < ?
+                """,
+                (
+                    VacancyResponseStatus.SENT.value,
+                    day_start.isoformat(),
+                    next_day.isoformat(),
+                ),
+            ).fetchone()
+        return int(row[0]) if row else 0
 
     def release(self, url: str) -> None:
         vacancy_id = vacancy_id_from_url(url)

@@ -35,6 +35,7 @@ def run_permitted_activities(
     completed_urls: set[str] = set()
     viewed_count = 0
     generation_advanced = False
+    daily_response_limit_reported = False
     matcher = None
     if policy.vacancy_matching:
         matcher = VacancyCompatibilityMatcher(
@@ -98,7 +99,27 @@ def run_permitted_activities(
                 if outcome.result.status is ActivityStatus.SUCCESS:
                     history.mark_viewed(outcome.url)
                     viewed_count += 1
-                    if policy.auto_respond and not history.has_response_record(outcome.url):
+                    daily_limit_reached = (
+                        policy.auto_respond
+                        and policy.daily_response_limit > 0
+                        and history.sent_response_count_today() >= policy.daily_response_limit
+                    )
+                    if daily_limit_reached and not daily_response_limit_reported:
+                        daily_response_limit_reported = True
+                        LOGGER.info(
+                            "Достигнут дневной лимит успешных откликов: %s. "
+                            "Просмотр вакансий продолжается без новых откликов до следующего дня.",
+                            policy.daily_response_limit,
+                            extra=event_data(
+                                LogEvent.SYSTEM,
+                                daily_response_limit=policy.daily_response_limit,
+                            ),
+                        )
+                    if (
+                        policy.auto_respond
+                        and not daily_limit_reached
+                        and not history.has_response_record(outcome.url)
+                    ):
                         response_result = respond_to_vacancy(
                             page,
                             vacancy_url=outcome.url,

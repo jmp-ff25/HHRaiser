@@ -12,6 +12,7 @@ from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 
 
@@ -158,6 +159,62 @@ class ActivityServiceTests(unittest.TestCase):
             self.assertTrue(
                 any(result.action == ActivityKind.RESPOND_VACANCY for result in results)
             )
+
+    def test_daily_limit_skips_new_response_without_stopping_vacancy_views(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            history.reserve_unseen(
+                ["https://hh.ru/vacancy/1"],
+                search_query="Python",
+                limit=1,
+                revisit_after_days=0,
+            )
+            history.record_response(
+                VacancyResponseRecord.now(
+                    vacancy_id="1",
+                    status=VacancyResponseStatus.SENT,
+                    detail="sent",
+                    vacancy_title="Previous",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=80,
+                )
+            )
+            rotation = VacancyRotation(queries=("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                search_pages_per_cycle=1,
+                revisit_after_days=0,
+                vacancy_matching=False,
+                auto_respond=True,
+                daily_response_limit=1,
+            )
+            url = "https://hh.ru/vacancy/2"
+            viewed = ActivityResult(
+                action=ActivityKind.VIEW_VACANCY,
+                status=ActivityStatus.SUCCESS,
+                detail="viewed",
+                metadata={"vacancy_title": "New vacancy", "company_name": "Example"},
+            )
+            with (
+                patch(
+                    "hh_raiser.application.activity_service.view_search_page",
+                    return_value=(successful_result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.view_vacancies",
+                    return_value=[VacancyViewOutcome(url=url, result=viewed)],
+                ),
+                patch("hh_raiser.application.activity_service.respond_to_vacancy") as respond_mock,
+                patch(
+                    "hh_raiser.application.activity_service.review_resume",
+                    return_value=successful_result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_permitted_activities(object(), policy, rotation, history, "Python")
+
+            respond_mock.assert_not_called()
+            self.assertEqual(history.viewed_count(), 1)
 
     def test_rejected_vacancy_is_evaluated_but_not_viewed(self) -> None:
         with TemporaryDirectory() as directory:

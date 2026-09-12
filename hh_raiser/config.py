@@ -17,6 +17,7 @@ DEFAULT_RESET_ON_EXHAUSTION = True
 DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
 DEFAULT_AUTO_RESPOND = False
+DEFAULT_DAILY_RESPONSE_LIMIT = 0
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class FileConfig:
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
     auto_respond: bool | None = None
+    daily_response_limit: int | None = None
     search_filters: SearchFilters = field(default_factory=SearchFilters)
 
 
@@ -44,6 +46,7 @@ class RuntimeSettings:
     vacancy_matching: bool
     match_threshold: int
     auto_respond: bool
+    daily_response_limit: int
     search_filters: SearchFilters
 
 
@@ -91,6 +94,7 @@ def read_file_config(path: Path) -> FileConfig:
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
+        daily_response_limit = parser.getint("responses", "daily_limit", fallback=None)
         search_filters = SearchFilters(
             excluded_words=parse_search_queries(
                 parser.get("search_filters", "excluded_words", fallback="")
@@ -119,6 +123,7 @@ def read_file_config(path: Path) -> FileConfig:
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
         auto_respond=auto_respond,
+        daily_response_limit=daily_response_limit,
         search_filters=search_filters,
     )
 
@@ -168,6 +173,11 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "auto_respond", None)
         if getattr(args, "auto_respond", None) is not None
         else file_config.auto_respond
+    )
+    daily_response_limit = (
+        getattr(args, "daily_response_limit", None)
+        if getattr(args, "daily_response_limit", None) is not None
+        else file_config.daily_response_limit
     )
 
     if not resume_title:
@@ -225,5 +235,15 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             maximum=100,
         ),
         auto_respond=(auto_respond if auto_respond is not None else DEFAULT_AUTO_RESPOND),
+        daily_response_limit=_validate_range(
+            "responses.daily_limit",
+            (
+                daily_response_limit
+                if daily_response_limit is not None
+                else DEFAULT_DAILY_RESPONSE_LIMIT
+            ),
+            minimum=0,
+            maximum=1_000,
+        ),
         search_filters=file_config.search_filters,
     )

@@ -88,6 +88,9 @@ class SystemdServiceManager:
     async def stop(self, service_name: str) -> None:
         await self._change_state("stop", service_name)
 
+    async def restart(self, service_name: str) -> None:
+        await self._change_state("restart", service_name)
+
     async def recent_logs(self, service_name: str, *, lines: int) -> str:
         result = await self._runner.run(
             (

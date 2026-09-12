@@ -15,6 +15,7 @@ class ManagedInstance:
     name: str
     service_name: str
     state_dir: Path
+    config_file: Path
 
 
 @dataclass(frozen=True)

@@ -39,6 +39,10 @@ state_dir = state/main
         self.assertEqual(settings.summary_interval_minutes, 360)
         self.assertTrue(settings.user_systemd)
         self.assertEqual(settings.instances["main"].state_dir, root / "state" / "main")
+        self.assertEqual(
+            settings.instances["main"].config_file,
+            root / "state" / "main" / "hh-config.ini",
+        )
 
     def test_environment_user_ids_override_ini_value(self) -> None:
         with TemporaryDirectory() as directory:
@@ -103,6 +107,28 @@ state_dir = state
             )
 
             with self.assertRaisesRegex(BotConfigError, "допустимым именем"):
+                load_bot_settings(
+                    config_path,
+                    environment={"HHRAISER_BOT_TOKEN": "secret"},
+                )
+
+    def test_rejects_editable_config_outside_instance_state_directory(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-bot.ini"
+            config_path.write_text(
+                """
+[telegram]
+allowed_user_ids = 100
+
+[instance:main]
+service = hhraiser@main.service
+state_dir = state
+config_file = ../private.ini
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(BotConfigError, "внутри state_dir"):
                 load_bot_settings(
                     config_path,
                     environment={"HHRAISER_BOT_TOKEN": "secret"},

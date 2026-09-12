@@ -4,7 +4,7 @@ import random
 import sqlite3
 import unittest
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -179,3 +179,51 @@ class VacancyHistoryTests(unittest.TestCase):
             self.assertFalse(history.record_response(record))
             self.assertTrue(history.has_response_record(url))
             self.assertEqual(history.response_records(), [record])
+
+    def test_counts_only_successful_responses_from_current_moscow_day(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            now = datetime(2026, 9, 12, 15, 0, tzinfo=MOSCOW)
+            records = (
+                VacancyResponseRecord(
+                    vacancy_id="1",
+                    occurred_at=now - timedelta(hours=1),
+                    status=VacancyResponseStatus.SENT,
+                    detail="sent",
+                    vacancy_title="One",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=80,
+                ),
+                VacancyResponseRecord(
+                    vacancy_id="2",
+                    occurred_at=now - timedelta(days=1),
+                    status=VacancyResponseStatus.SENT,
+                    detail="sent",
+                    vacancy_title="Two",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=80,
+                ),
+                VacancyResponseRecord(
+                    vacancy_id="3",
+                    occurred_at=now,
+                    status=VacancyResponseStatus.MANUAL_REQUIRED,
+                    detail="questionnaire",
+                    vacancy_title="Three",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=80,
+                    manual_reason=ManualResponseReason.QUESTIONNAIRE,
+                ),
+            )
+            for record in records:
+                history.reserve_unseen(
+                    [f"https://hh.ru/vacancy/{record.vacancy_id}"],
+                    search_query="Python",
+                    limit=1,
+                    revisit_after_days=0,
+                )
+                history.record_response(record)
+
+            self.assertEqual(history.sent_response_count_today(now=now), 1)

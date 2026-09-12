@@ -74,6 +74,7 @@ class BotStatisticsTests(unittest.TestCase):
             name="Основное <резюме>",
             service_name="hhraiser@main.service",
             state_dir=Path("state"),
+            config_file=Path("state/hh-config.ini"),
         )
 
         text = format_statistics(instance, statistics)

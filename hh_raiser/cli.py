@@ -299,6 +299,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--daily-response-limit",
+        type=lambda value: bounded_non_negative_int(value, maximum=1_000),
+        default=None,
+        help="Максимум успешных откликов за день; 0 отключает дневное ограничение.",
+    )
+    parser.add_argument(
         "--search-scrolls",
         type=lambda value: bounded_non_negative_int(value, maximum=20),
         default=3,
@@ -360,6 +366,7 @@ def run_browser_context(
             vacancy_matching=args.vacancy_matching,
             match_threshold=args.match_threshold,
             auto_respond=args.auto_respond,
+            daily_response_limit=args.daily_response_limit,
             search_filters=args.search_filters,
         )
         report_path = args.profile_dir.parent / "activity-events.jsonl"
@@ -512,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
     args.auto_respond = settings.auto_respond
+    args.daily_response_limit = settings.daily_response_limit
     args.search_filters = settings.search_filters
     if args.full_activity and args.search_filters.areas:
         try:

@@ -108,6 +108,8 @@ threshold = 55
 [responses]
 # Оставьте false, пока не решите явно включить простые автоматические отклики.
 enabled = false
+# 0 — без дневного ограничения; положительное число — максимум успешных откликов.
+daily_limit = 0
 ```
 
 ### 3. Добавьте учётные данные
@@ -599,7 +601,13 @@ task full-activity
 ```ini
 [responses]
 enabled = true
+daily_limit = 25
 ```
+
+`daily_limit` считает только подтверждённые успешные отклики за календарный день по
+московскому времени. Анкеты, тесты, ручные действия и технические ошибки лимит не
+расходуют. Значение `0` означает отсутствие дневного ограничения. После достижения
+лимита просмотр вакансий продолжается, но новые отклики откладываются до следующего дня.
 
 Эквивалентный низкоуровневый параметр — `--auto-respond`. Перед откликом вакансия
 должна пройти фильтры, получить оценку не ниже `match_threshold` и успешно пройти
@@ -660,6 +668,7 @@ task help
 - `--match-threshold` — минимальная оценка для содержательного просмотра, 0–100;
 - `--auto-respond` / `--no-auto-respond` — включить или явно выключить простые
   отклики без обязательных форм;
+- `--daily-response-limit` — максимум успешных откликов за день, 0 отключает лимит;
 - `--search-scrolls` — прокруток выдачи, допустимо 0–20;
 - `--vacancy-scrolls` — прокруток одной вакансии, допустимо 0–10;
 - `--scroll-pause-seconds` — пауза между прокрутками;
@@ -719,6 +728,8 @@ Telegram-бот служит отдельной панелью управлен�
 - посмотреть последние строки системного журнала;
 - получить сводную статистику из SQLite;
 - скачать актуальный Excel-журнал откликов;
+- безопасно просматривать и менять разрешённые настройки выбранного экземпляра;
+- восстановить предыдущую версию настроек и перезапустить работающий экземпляр;
 - получать периодическую сводку с интервалом `summary_interval_minutes`; значение
   `0` полностью отключает автоматические сообщения.
 
@@ -760,9 +771,12 @@ sudo install -d -o root -g hhraiser -m 750 /etc/hhraiser
 sudo loginctl enable-linger hhraiser
 ```
 
-Скопируйте `hh-config.example.ini` в `/etc/hhraiser/main.ini`, создайте рядом
-`main-credentials.ini`, а `hh-bot.example.ini` скопируйте в
-`/etc/hhraiser/bot.ini`. Секреты бота хранятся отдельно:
+Скопируйте `hh-config.example.ini` в изменяемый каталог экземпляра
+`/var/lib/hhraiser/main/hh-config.ini`, создайте закрытый файл
+`/etc/hhraiser/main-credentials.ini`, а `hh-bot.example.ini` скопируйте в
+`/etc/hhraiser/bot.ini`. В секции `[instance:main]` оставьте `config_file` внутри
+`state_dir`: бот намеренно отказывается изменять файлы за его пределами. Секреты
+бота хранятся отдельно:
 
 ```text
 HHRAISER_BOT_TOKEN=токен_от_BotFather
@@ -774,6 +788,8 @@ HHRAISER_BOT_ALLOWED_USER_IDS=ваш_Telegram_user_ID
 ```text
 sudo chown root:hhraiser /etc/hhraiser/*.ini /etc/hhraiser/bot.env
 sudo chmod 640 /etc/hhraiser/*.ini /etc/hhraiser/bot.env
+sudo chown hhraiser:hhraiser /var/lib/hhraiser/main/hh-config.ini
+sudo chmod 600 /var/lib/hhraiser/main/hh-config.ini
 ```
 
 Установите пользовательские unit-файлы и включите только панель управления:
@@ -790,6 +806,15 @@ sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --use
 ```text
 sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --user start hhraiser@main.service
 ```
+
+В Telegram откройте экземпляр и нажмите **⚙️ Настройки**. Бот показывает текущее
+значение, принимает новое, проверяет его тип и диапазон, затем выводит сравнение
+«было → станет». Запись выполняется только после отдельного подтверждения. Перед
+заменой создаётся резервная копия в `config-backups`, а обезличенная запись об
+изменённом поле добавляется в `config-audit.jsonl`. Токен Telegram, пароль HH и
+профиль Chromium через это меню прочитать или изменить невозможно. Если экземпляр
+уже работает, бот предложит подтвердить его перезапуск; иначе настройка применится
+при следующем запуске.
 
 Каталог, INI-файл, cookies, профили, traces и исследовательские артефакты исключены
 из Git. В JSONL-отчёт не записываются URL вакансий, query-параметры, cookies,

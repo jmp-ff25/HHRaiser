@@ -58,6 +58,17 @@ class SystemdServiceManagerTests(unittest.IsolatedAsyncioTestCase):
             [("systemctl", "--user", "start", "hhraiser@main.service")],
         )
 
+    async def test_restart_uses_fixed_argument_vector(self) -> None:
+        runner = FakeRunner([CommandResult(return_code=0, stdout="", stderr="")])
+        manager = SystemdServiceManager(user_mode=True, runner=runner)
+
+        await manager.restart("hhraiser@main.service")
+
+        self.assertEqual(
+            runner.calls,
+            [("systemctl", "--user", "restart", "hhraiser@main.service")],
+        )
+
     async def test_failed_command_has_readable_error(self) -> None:
         runner = FakeRunner([CommandResult(return_code=5, stdout="", stderr="Unit not found")])
         manager = SystemdServiceManager(user_mode=True, runner=runner)
