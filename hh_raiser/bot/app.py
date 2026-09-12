@@ -8,7 +8,7 @@ from html import escape
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramError
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand,
@@ -268,7 +268,7 @@ class TelegramControlBot:
             for user_id in self.settings.allowed_user_ids:
                 try:
                     await bot.send_message(user_id, text)
-                except TelegramError:
+                except TelegramAPIError:
                     LOGGER.warning(
                         "Не удалось доставить периодическую сводку разрешённому пользователю.",
                         extra=event_data(LogEvent.NETWORK),
