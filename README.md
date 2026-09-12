@@ -45,6 +45,7 @@ Playwright и постоянный профиль Chromium; архитектур
 - [Параметры командной строки](#параметры-командной-строки)
 - [Расписание и завершение работы](#расписание-и-завершение-работы)
 - [Логи и локальные данные](#логи-и-локальные-данные)
+- [Telegram-панель на Ubuntu](#telegram-панель-на-ubuntu)
 - [Структура проекта](#структура-проекта)
 - [Навыки агента](#навыки-агента)
 - [Проверка и разработка](#проверка-и-разработка)
@@ -704,6 +705,91 @@ task help
 - `vacancy-responses.xlsx` — фильтруемый журнал откликов для Excel;
 - `status.json` — известное время следующего поднятия;
 - служебные маркеры cooldown и обратимого обновления версии.
+
+## Telegram-панель на Ubuntu
+
+Telegram-бот служит отдельной панелью управления и не запускает произвольные
+команды. Он работает только с экземплярами, заранее перечисленными в локальном
+`hh-bot.ini`, и принимает команды только от разрешённых Telegram user ID.
+
+Через панель можно:
+
+- увидеть, работает ли выбранный экземпляр HHRaiser;
+- вручную запустить или остановить его после дополнительного подтверждения;
+- посмотреть последние строки системного журнала;
+- получить сводную статистику из SQLite;
+- скачать актуальный Excel-журнал откликов;
+- получать периодическую сводку с интервалом `summary_interval_minutes`; значение
+  `0` полностью отключает автоматические сообщения.
+
+Токен создаётся через официальный Telegram-бот `@BotFather` и хранится только в
+переменной окружения `HHRAISER_BOT_TOKEN`. Не добавляйте токен в INI, Git или
+сообщения журнала. Локальную конфигурацию подготовьте из примера:
+
+```text
+cp hh-bot.example.ini hh-bot.ini
+```
+
+Для обычного локального запуска:
+
+```text
+export HHRAISER_BOT_TOKEN="полученный токен"
+export HHRAISER_BOT_ALLOWED_USER_IDS="ваш Telegram user ID"
+task bot
+```
+
+На Ubuntu рекомендуется использовать пользовательские службы systemd из
+`deploy/systemd/`. Один бот управляет несколькими службами вида
+`hhraiser@main.service`, а каждому экземпляру назначаются собственные INI-файлы,
+профиль Chromium, SQLite и Excel-журнал. Служба HHRaiser имеет `Restart=no`:
+закрытый браузер или штатная остановка не запускаются заново без команды владельца.
+Бот перезапускается только при собственной технической ошибке и не меняет это
+поведение управляемых экземпляров.
+
+Long polling не требует домена, HTTPS-сертификата или открытого входящего порта.
+Одновременно должен работать только один процесс бота с конкретным токеном.
+
+### Подготовка служб на Ubuntu
+
+Создайте отдельного системного пользователя и закрытые каталоги данных:
+
+```text
+sudo useradd --create-home --shell /bin/bash hhraiser
+sudo install -d -o hhraiser -g hhraiser -m 700 /var/lib/hhraiser/main
+sudo install -d -o root -g hhraiser -m 750 /etc/hhraiser
+sudo loginctl enable-linger hhraiser
+```
+
+Скопируйте `hh-config.example.ini` в `/etc/hhraiser/main.ini`, создайте рядом
+`main-credentials.ini`, а `hh-bot.example.ini` скопируйте в
+`/etc/hhraiser/bot.ini`. Секреты бота хранятся отдельно:
+
+```text
+HHRAISER_BOT_TOKEN=токен_от_BotFather
+HHRAISER_BOT_ALLOWED_USER_IDS=ваш_Telegram_user_ID
+```
+
+Сохраните эти две строки в `/etc/hhraiser/bot.env`, затем ограничьте права:
+
+```text
+sudo chown root:hhraiser /etc/hhraiser/*.ini /etc/hhraiser/bot.env
+sudo chmod 640 /etc/hhraiser/*.ini /etc/hhraiser/bot.env
+```
+
+Установите пользовательские unit-файлы и включите только панель управления:
+
+```text
+sudo cp deploy/systemd/*.service /etc/systemd/user/
+sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --user daemon-reload
+sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --user enable --now hhraiser-bot.service
+```
+
+Экземпляр автоматизации намеренно не включается автоматически. После подготовки
+конфигурации и серверной сессии его можно запустить кнопкой Telegram либо командой:
+
+```text
+sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --user start hhraiser@main.service
+```
 
 Каталог, INI-файл, cookies, профили, traces и исследовательские артефакты исключены
 из Git. В JSONL-отчёт не записываются URL вакансий, query-параметры, cookies,

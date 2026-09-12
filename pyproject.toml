@@ -12,6 +12,7 @@ authors = [
     { name = "jmp-ff25" },
 ]
 dependencies = [
+    "aiogram>=3.31,<4",
     "playwright>=1.62,<2",
     "rich>=14,<15",
     "xlsxwriter>=3.2,<4",
@@ -24,6 +25,7 @@ dev = [
 
 [project.scripts]
 hh-resume-raiser = "hh_raiser.cli:main"
+hh-resume-raiser-bot = "hh_raiser.bot.cli:main"
 
 [project.urls]
 Repository = "https://github.com/jmp-ff25/HHRaiser"

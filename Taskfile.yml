@@ -3,6 +3,7 @@ version: "3"
 vars:
   CONFIG_FILE: hh-config.ini
   CREDENTIALS_FILE: hh-credentials.ini
+  BOT_CONFIG_FILE: hh-bot.ini
   COMMON_ARGS: >-
     --config-file "{{.CONFIG_FILE}}"
     --credentials-file "{{.CREDENTIALS_FILE}}"
@@ -177,6 +178,13 @@ tasks:
     desc: Показать палитру уровней и категорий логов без запуска браузера
     cmds:
       - uv run --locked python -m hh_raiser.log_color_demo
+
+  bot:
+    desc: Запустить Telegram-панель управления экземплярами HHRaiser
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser-bot
+        --config-file "{{.BOT_CONFIG_FILE}}"
 
   format:
     desc: Отформатировать Python-код

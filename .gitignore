@@ -221,6 +221,8 @@ __marimo__/
 .hh-resume-raiser/
 hh-credentials.ini
 hh-config.ini
+hh-bot.ini
+hh-bot.env
 
 # Browser research artifacts (never commit profiles, traces or DOM snapshots)
 research-artifacts/

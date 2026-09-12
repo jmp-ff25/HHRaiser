@@ -6,9 +6,7 @@ from pathlib import Path
 
 class TaskfileTests(unittest.TestCase):
     def test_launch_profiles_do_not_override_configurable_numbers(self) -> None:
-        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(
-            encoding="utf-8"
-        )
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 
         for option in (
             "--match-threshold",
@@ -17,3 +15,9 @@ class TaskfileTests(unittest.TestCase):
         ):
             with self.subTest(option=option):
                 self.assertNotIn(option, taskfile)
+
+    def test_telegram_bot_has_cross_platform_task(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        self.assertIn("hh-resume-raiser-bot", taskfile)
+        self.assertIn("BOT_CONFIG_FILE", taskfile)

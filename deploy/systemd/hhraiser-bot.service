@@ -1,0 +1,17 @@
+[Unit]
+Description=HHRaiser Telegram control bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hhraiser
+EnvironmentFile=/etc/hhraiser/bot.env
+ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser-bot --config-file /etc/hhraiser/bot.ini
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

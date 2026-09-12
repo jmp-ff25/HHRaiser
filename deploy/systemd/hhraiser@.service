@@ -1,0 +1,18 @@
+[Unit]
+Description=HHRaiser instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hhraiser
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --config-file /etc/hhraiser/%i.ini --credentials-file /etc/hhraiser/%i-credentials.ini --profile-dir /var/lib/hhraiser/%i/browser-profile
+KillSignal=SIGINT
+TimeoutStopSec=60
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
