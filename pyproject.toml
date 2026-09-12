@@ -13,6 +13,7 @@ authors = [
 ]
 dependencies = [
     "playwright>=1.62,<2",
+    "rich>=14,<15",
     "xlsxwriter>=3.2,<4",
 ]
 

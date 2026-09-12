@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from hh_raiser.credentials import normalize_russian_phone, resolve_credentials
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import redact_url
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 from hh_raiser.models import (
     MOSCOW,
     PROFILE_URL,
@@ -73,8 +73,14 @@ def wait_for_login_action(page: Page, *, previous: str | None = None, timeout: f
 
 
 def wait_for_manual_login(page: Page) -> None:
-    LOGGER.warning("HH запросил код, CAPTCHA или дополнительное подтверждение.")
-    LOGGER.info("Завершите вход в открытом окне браузера.")
+    LOGGER.warning(
+        "HH запросил код, CAPTCHA или дополнительное подтверждение.",
+        extra=event_data(LogEvent.AUTH),
+    )
+    LOGGER.info(
+        "Завершите вход в открытом окне браузера.",
+        extra=event_data(LogEvent.AUTH),
+    )
     while True:
         answer = input("После завершения нажмите Enter; для выхода введите q: ").strip().lower()
         if answer == "q":
@@ -84,7 +90,11 @@ def wait_for_manual_login(page: Page) -> None:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
         if wait_for_login_action(page, timeout=10) == "authenticated":
             return
-        LOGGER.info("Сессия ещё не подтверждена. Текущая страница: %s", page.url)
+        LOGGER.info(
+            "Сессия ещё не подтверждена. Текущая страница: %s",
+            page.url,
+            extra=event_data(LogEvent.AUTH),
+        )
 
 
 def login_if_needed(page: Page, args: argparse.Namespace) -> None:
@@ -171,6 +181,7 @@ def wait_for_profile_content(
             "Резюме «%s» не появилось за %s секунд; перезагружаю страницу.",
             resume_title,
             page_refresh_seconds,
+            extra=event_data(LogEvent.RESUME, resume_title=resume_title),
         )
         page.reload(wait_until="domcontentloaded")
 
@@ -223,6 +234,7 @@ def wait_for_recognized_state(
         LOGGER.warning(
             "Не удалось определить состояние резюме за %s секунд; перезагружаю страницу.",
             page_refresh_seconds,
+            extra=event_data(LogEvent.RESUME),
         )
         page.reload(wait_until="domcontentloaded")
 
@@ -244,11 +256,18 @@ def close_context_quietly(context: BrowserContext) -> None:
     try:
         context.close()
     except KeyboardInterrupt:
-        LOGGER.debug("Browser shutdown was interrupted; continuing process cleanup.")
+        LOGGER.debug(
+            "Browser shutdown was interrupted; continuing process cleanup.",
+            extra=event_data(LogEvent.BROWSER),
+        )
     except Exception as error:
         if not is_closed_playwright_error(error):
             raise
-        LOGGER.debug("Browser context was already closed during shutdown: %s", error)
+        LOGGER.debug(
+            "Browser context was already closed during shutdown: %s",
+            error,
+            extra=event_data(LogEvent.BROWSER),
+        )
 
 
 def is_closed_playwright_error(error: BaseException) -> bool:

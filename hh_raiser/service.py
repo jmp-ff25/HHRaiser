@@ -14,7 +14,7 @@ from hh_raiser.infrastructure.browser.modal_guard import (
     dismiss_hh_pro_modal,
     hh_pro_modal_visible,
 )
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 from hh_raiser.models import MOSCOW, PROFILE_URL
 from hh_raiser.storage import guarded_until, write_attempt_guard, write_next_raise_time
 
@@ -46,34 +46,57 @@ def run_cycle(
         resume_title,
         page_refresh_seconds=page_refresh_seconds,
     )
-    LOGGER.info("Состояние резюме «%s»: %s", resume_title, state.kind)
+    LOGGER.info(
+        "Состояние резюме «%s»: %s",
+        resume_title,
+        state.kind,
+        extra=event_data(LogEvent.RESUME, resume_state=state.kind, resume_title=resume_title),
+    )
     if state.kind == "waiting":
         if state.next_at is None:
             return None
         write_next_raise_time(profile_dir, state.next_at)
-        LOGGER.info("Следующее поднятие доступно: %s", state.next_at.strftime("%Y-%m-%d %H:%M %Z"))
+        LOGGER.info(
+            "Следующее поднятие доступно: %s",
+            state.next_at.strftime("%Y-%m-%d %H:%M %Z"),
+            extra=event_data(LogEvent.SCHEDULE, next_resume_raise_at=state.next_at.isoformat()),
+        )
         return state.next_at
     if state.kind != "available" or button is None:
-        LOGGER.warning("Не удалось распознать кнопку или время; повторю только чтение позже.")
+        LOGGER.warning(
+            "Не удалось распознать кнопку или время; повторю только чтение позже.",
+            extra=event_data(LogEvent.RESUME, resume_title=resume_title),
+        )
         return None
     if dry_run:
-        LOGGER.info("Кнопка доступна; --dry-run запрещает нажатие.")
+        LOGGER.info(
+            "Кнопка доступна; --dry-run запрещает нажатие.",
+            extra=event_data(LogEvent.RESUME, resume_title=resume_title),
+        )
         return None
     protected_until = guarded_until(profile_dir, minimum_cooldown)
     if protected_until:
         write_next_raise_time(profile_dir, protected_until)
         LOGGER.info(
-            "Защита от повтора активна до %s.", protected_until.strftime("%Y-%m-%d %H:%M %Z")
+            "Защита от повтора активна до %s.",
+            protected_until.strftime("%Y-%m-%d %H:%M %Z"),
+            extra=event_data(LogEvent.RESUME, protected_until=protected_until.isoformat()),
         )
         return protected_until
     dismiss_hh_pro_modal(page)
     if hh_pro_modal_visible(page):
-        LOGGER.warning("Окно hh PRO осталось открытым; откладываю поднятие без клика.")
+        LOGGER.warning(
+            "Окно hh PRO осталось открытым; откладываю поднятие без клика.",
+            extra=event_data(LogEvent.MODAL),
+        )
         return None
     try:
         button.click(trial=True, timeout=5_000)
     except PlaywrightTimeoutError:
-        LOGGER.warning("Кнопка поднятия перекрыта или недоступна; повторю проверку позже.")
+        LOGGER.warning(
+            "Кнопка поднятия перекрыта или недоступна; повторю проверку позже.",
+            extra=event_data(LogEvent.RESUME, resume_title=resume_title),
+        )
         return None
     attempted_at = datetime.now(MOSCOW)
     write_attempt_guard(profile_dir, attempted_at)
@@ -88,13 +111,22 @@ def run_cycle(
     finally:
         capture.enabled = False
     if capture.events:
-        LOGGER.info("XHR/fetch после единственного клика:")
+        LOGGER.info(
+            "XHR/fetch после единственного клика:",
+            extra=event_data(LogEvent.NETWORK),
+        )
         for event in dict.fromkeys(capture.events):
-            LOGGER.info("  %s", event)
+            LOGGER.info("  %s", event, extra=event_data(LogEvent.NETWORK))
     if result.kind == "waiting" and result.next_at is not None:
         write_next_raise_time(profile_dir, result.next_at)
         LOGGER.info(
-            "Резюме поднято. Следующая попытка: %s", result.next_at.strftime("%Y-%m-%d %H:%M %Z")
+            "Резюме поднято. Следующая попытка: %s",
+            result.next_at.strftime("%Y-%m-%d %H:%M %Z"),
+            extra=event_data(
+                LogEvent.RESUME,
+                next_resume_raise_at=result.next_at.isoformat(),
+                resume_title=resume_title,
+            ),
         )
         return result.next_at
     fallback = attempted_at + minimum_cooldown
@@ -102,5 +134,6 @@ def run_cycle(
     LOGGER.warning(
         "Клик был отправлен, но время не распознано; повтор защищён до %s",
         fallback.strftime("%Y-%m-%d %H:%M %Z"),
+        extra=event_data(LogEvent.RESUME, protected_until=fallback.isoformat()),
     )
     return fallback

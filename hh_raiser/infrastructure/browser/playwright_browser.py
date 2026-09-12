@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Page
@@ -26,10 +26,17 @@ def maximize_browser_window(context: BrowserContext, page: Page, *, headless: bo
                 "bounds": {"windowState": "maximized"},
             },
         )
-        LOGGER.info("Окно Chromium развёрнуто по доступной области монитора.")
+        LOGGER.info(
+            "Окно Chromium развёрнуто по доступной области монитора.",
+            extra=event_data(LogEvent.BROWSER),
+        )
         return True
     except (KeyError, PlaywrightError) as error:
-        LOGGER.warning("Не удалось автоматически развернуть окно Chromium: %s", error)
+        LOGGER.warning(
+            "Не удалось автоматически развернуть окно Chromium: %s",
+            error,
+            extra=event_data(LogEvent.BROWSER),
+        )
         return False
     finally:
         if session is not None:

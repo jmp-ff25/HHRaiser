@@ -18,7 +18,7 @@ from hh_raiser.infrastructure.hh.selectors import (
     RESPONSE_SUCCESS,
 )
 from hh_raiser.infrastructure.storage.vacancy_history import vacancy_id_from_url
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
     from playwright.sync_api import Locator, Page
@@ -293,7 +293,16 @@ def _is_hh_url(url: str) -> bool:
 
 
 def _sent_result(vacancy_id: str, vacancy_title: str) -> ActivityResult:
-    LOGGER.info("Отклик на вакансию «%s» успешно отправлен.", vacancy_title)
+    LOGGER.info(
+        "Отклик на вакансию «%s» успешно отправлен.",
+        vacancy_title,
+        extra=event_data(
+            LogEvent.RESPONSE_SENT,
+            response_status=VacancyResponseStatus.SENT.value,
+            vacancy_id=vacancy_id,
+            vacancy_title=vacancy_title,
+        ),
+    )
     return _result(
         VacancyResponseStatus.SENT,
         "HH показал подтверждение успешного отклика.",
@@ -309,7 +318,18 @@ def _manual_result(
     vacancy_id: str,
     vacancy_title: str,
 ) -> ActivityResult:
-    LOGGER.info("Отклик на вакансию «%s» требует участия кандидата: %s", vacancy_title, detail)
+    LOGGER.info(
+        "Отклик на вакансию «%s» требует участия кандидата: %s",
+        vacancy_title,
+        detail,
+        extra=event_data(
+            LogEvent.RESPONSE_MANUAL,
+            manual_reason=reason.value,
+            response_status=VacancyResponseStatus.MANUAL_REQUIRED.value,
+            vacancy_id=vacancy_id,
+            vacancy_title=vacancy_title,
+        ),
+    )
     return _result(
         VacancyResponseStatus.MANUAL_REQUIRED,
         detail,

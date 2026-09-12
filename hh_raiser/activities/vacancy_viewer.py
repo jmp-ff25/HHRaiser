@@ -17,7 +17,7 @@ from hh_raiser.infrastructure.hh.selectors import (
     VACANCY_HEADING,
     VACANCY_SKILL,
 )
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -73,6 +73,12 @@ def view_vacancies(
                 index,
                 len(vacancy_urls),
                 vacancy_title,
+                extra=event_data(
+                    LogEvent.VACANCY_OPEN,
+                    vacancy_index=index,
+                    vacancy_title=vacancy_title,
+                    vacancy_url=canonical,
+                ),
             )
             description_visible = description.count() > 0 and description.first.is_visible()
             content_recognized = recognized and description_visible
@@ -93,6 +99,13 @@ def view_vacancies(
                         vacancy_title,
                         assessment.score,
                         policy.match_threshold,
+                        extra=event_data(
+                            LogEvent.VACANCY_MATCH,
+                            match_score=assessment.score,
+                            match_threshold=policy.match_threshold,
+                            vacancy_title=vacancy_title,
+                            vacancy_url=canonical,
+                        ),
                     )
                     if not assessment.accepted:
                         yielded = True
@@ -135,6 +148,11 @@ def view_vacancies(
                     LOGGER.warning(
                         "Сопоставление вакансии «%s» пропущено: текст резюме недоступен.",
                         vacancy_title,
+                        extra=event_data(
+                            LogEvent.VACANCY_MATCH,
+                            vacancy_title=vacancy_title,
+                            vacancy_url=canonical,
+                        ),
                     )
             scrolls_completed = 0
             if description_visible:
@@ -143,6 +161,12 @@ def view_vacancies(
                     index,
                     len(vacancy_urls),
                     vacancy_title,
+                    extra=event_data(
+                        LogEvent.VACANCY_VIEW,
+                        vacancy_index=index,
+                        vacancy_title=vacancy_title,
+                        vacancy_url=canonical,
+                    ),
                 )
                 for _ in range(policy.vacancy_scrolls):
                     page.locator("body").press("PageDown")

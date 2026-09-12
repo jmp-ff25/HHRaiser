@@ -32,7 +32,7 @@ from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
 from hh_raiser.infrastructure.hh.area_resolver import AreaResolutionError, resolve_current_areas
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
-from hh_raiser.logging_config import LOGGER, configure_logging
+from hh_raiser.logging_config import LOGGER, LogEvent, configure_logging, event_data
 from hh_raiser.models import MOSCOW, PROFILE_URL
 from hh_raiser.reporting.activity_report import append_activity_results
 from hh_raiser.scheduling import format_wait_duration, seconds_until, wait_for_due_time
@@ -71,7 +71,13 @@ def log_activity_results(results: list[ActivityResult]) -> None:
             ActivityKind.VIEW_VACANCY,
             ActivityKind.RESPOND_VACANCY,
         }:
-            LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+            LOGGER.info(
+                "Активность %s: %s — %s",
+                result.action,
+                result.status,
+                result.detail,
+                extra=event_data(LogEvent.REPORT, activity_kind=result.action.value),
+            )
 
     if response_results:
         for result in response_results:
@@ -81,6 +87,7 @@ def log_activity_results(results: list[ActivityResult]) -> None:
                     result.metadata.get("vacancy_title") or "название не распознано",
                     result.status,
                     result.detail,
+                    extra=event_data(LogEvent.RESPONSE_MANUAL),
                 )
         response_counts = Counter(
             str(result.metadata.get("response_status") or "unknown") for result in response_results
@@ -94,6 +101,7 @@ def log_activity_results(results: list[ActivityResult]) -> None:
             response_counts["unavailable"],
             response_counts["unknown"],
             response_counts["error"],
+            extra=event_data(LogEvent.REPORT, report_kind="responses"),
         )
 
     if search_results:
@@ -105,13 +113,20 @@ def log_activity_results(results: list[ActivityResult]) -> None:
             search_counts[ActivityStatus.SUCCESS],
             search_counts[ActivityStatus.UNKNOWN],
             search_counts[ActivityStatus.ERROR],
+            extra=event_data(LogEvent.SEARCH, report_kind="search"),
         )
 
     if not vacancy_results:
         return
     if len(vacancy_results) == 1 and vacancy_results[0].status == ActivityStatus.SKIPPED:
         result = vacancy_results[0]
-        LOGGER.info("Активность %s: %s — %s", result.action, result.status, result.detail)
+        LOGGER.info(
+            "Активность %s: %s — %s",
+            result.action,
+            result.status,
+            result.detail,
+            extra=event_data(LogEvent.VACANCY_VIEW),
+        )
         return
 
     counts = Counter(result.status for result in vacancy_results)
@@ -122,10 +137,16 @@ def log_activity_results(results: list[ActivityResult]) -> None:
         counts[ActivityStatus.UNKNOWN],
         counts[ActivityStatus.ERROR],
         counts[ActivityStatus.SKIPPED],
+        extra=event_data(LogEvent.REPORT, report_kind="vacancy_views"),
     )
     for result in vacancy_results:
         if result.status in {ActivityStatus.ERROR, ActivityStatus.UNKNOWN}:
-            LOGGER.warning("Проблема при просмотре вакансии: %s — %s", result.status, result.detail)
+            LOGGER.warning(
+                "Проблема при просмотре вакансии: %s — %s",
+                result.status,
+                result.detail,
+                extra=event_data(LogEvent.VACANCY_VIEW),
+            )
 
 
 def positive_seconds(value: str) -> int:
@@ -307,7 +328,7 @@ def run_browser_context(
     stop_requested: Callable[[], bool] | None = None,
 ) -> None:
     should_stop = stop_requested or (lambda: False)
-    LOGGER.info("Запускаю Chromium...")
+    LOGGER.info("Запускаю Chromium...", extra=event_data(LogEvent.BROWSER))
     context = playwright.chromium.launch_persistent_context(
         str(args.profile_dir),
         headless=args.headless,
@@ -315,7 +336,10 @@ def run_browser_context(
         args=["--start-maximized"],
         timeout=30_000,
     )
-    LOGGER.info("Chromium запущен; проверяю авторизацию HH.")
+    LOGGER.info(
+        "Chromium запущен; проверяю авторизацию HH.",
+        extra=event_data(LogEvent.BROWSER),
+    )
     page = context.pages[0] if context.pages else context.new_page()
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
@@ -369,9 +393,15 @@ def run_browser_context(
             if should_stop():
                 return
             if args.full_activity and args.dry_run:
-                LOGGER.info("--dry-run: дополнительные действия просмотра пропущены.")
+                LOGGER.info(
+                    "--dry-run: дополнительные действия просмотра пропущены.",
+                    extra=event_data(LogEvent.SYSTEM),
+                )
             if args.resume_index_refresh and args.dry_run:
-                LOGGER.info("--dry-run: обновление версии резюме пропущено.")
+                LOGGER.info(
+                    "--dry-run: обновление версии резюме пропущено.",
+                    extra=event_data(LogEvent.SYSTEM),
+                )
             elif resume_refresh_enabled and (
                 next_resume_refresh_at is None or datetime.now(MOSCOW) >= next_resume_refresh_at
             ):
@@ -382,6 +412,7 @@ def run_browser_context(
                     refresh_result.action,
                     refresh_result.status,
                     refresh_result.detail,
+                    extra=event_data(LogEvent.RESUME, activity_kind=refresh_result.action.value),
                 )
                 next_resume_refresh_at = datetime.now(MOSCOW) + resume_refresh_interval
             elif activity_enabled and (
@@ -417,6 +448,7 @@ def run_browser_context(
                 "Следующая проверка через %s; часы сверяются каждые %s.",
                 format_wait_duration(wait_seconds),
                 format_wait_duration(args.poll_seconds),
+                extra=event_data(LogEvent.SCHEDULE, wait_seconds=wait_seconds),
             )
             poll_intervals = [args.poll_seconds]
             if activity_enabled:
@@ -438,7 +470,10 @@ def run_browser_context(
                     return
                 if args.restart_browser_on_close:
                     raise BrowserClosedDuringWait
-                LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
+                LOGGER.info(
+                    "Окно браузера закрыто; программа завершена без перезапуска.",
+                    extra=event_data(LogEvent.BROWSER),
+                )
                 return
     finally:
         close_context_quietly(context)
@@ -489,11 +524,16 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info(
             "Регионы поиска распознаны по актуальному справочнику HH: %s.",
             ", ".join(area.name for area in resolved_areas),
+            extra=event_data(LogEvent.SEARCH),
         )
     args.vacancy_history = VacancyHistory(args.profile_dir.parent / "vacancy-history.sqlite3")
     if args.reset_vacancy_history:
         generation = args.vacancy_history.advance_generation()
-        LOGGER.info("Вручную начат цикл уникальных просмотров № %s.", generation)
+        LOGGER.info(
+            "Вручную начат цикл уникальных просмотров № %s.",
+            generation,
+            extra=event_data(LogEvent.SEARCH, vacancy_generation=generation),
+        )
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 
@@ -520,7 +560,10 @@ def main(argv: list[str] | None = None) -> int:
                     args.resume_title,
                     page_refresh_seconds=args.page_refresh_seconds,
                 )
-                LOGGER.info("Авторизация подтверждена. Временный профиль проверки удалён.")
+                LOGGER.info(
+                    "Авторизация подтверждена. Временный профиль проверки удалён.",
+                    extra=event_data(LogEvent.AUTH),
+                )
             finally:
                 close_context_quietly(context)
         return 0
@@ -528,7 +571,7 @@ def main(argv: list[str] | None = None) -> int:
     with graceful_interrupt() as shutdown_requested:
         while True:
             try:
-                LOGGER.info("Запускаю Playwright...")
+                LOGGER.info("Запускаю Playwright...", extra=event_data(LogEvent.SYSTEM))
                 with sync_playwright() as playwright:
                     run_browser_context(
                         playwright,
@@ -536,31 +579,36 @@ def main(argv: list[str] | None = None) -> int:
                         stop_requested=shutdown_requested.is_set,
                     )
                 if shutdown_requested.is_set():
-                    LOGGER.info("Остановлено пользователем.")
+                    LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
                 return 0
             except KeyboardInterrupt:
-                LOGGER.info("Остановлено пользователем.")
+                LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
                 return 0
             except BrowserClosedDuringWait:
                 retry_seconds = min(max(args.poll_seconds, 1), 30)
                 LOGGER.warning(
                     "Окно браузера закрыто; явный перезапуск через %s.",
                     format_wait_duration(retry_seconds),
+                    extra=event_data(LogEvent.BROWSER),
                 )
                 if shutdown_requested.wait(retry_seconds):
-                    LOGGER.info("Остановлено пользователем.")
+                    LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
                     return 0
             except PlaywrightError as error:
                 if not is_closed_playwright_error(error):
                     raise
                 if not args.restart_browser_on_close:
-                    LOGGER.info("Окно браузера закрыто; программа завершена без перезапуска.")
+                    LOGGER.info(
+                        "Окно браузера закрыто; программа завершена без перезапуска.",
+                        extra=event_data(LogEvent.BROWSER),
+                    )
                     return 0
                 retry_seconds = min(max(args.poll_seconds, 1), 30)
                 LOGGER.warning(
                     "Связь с браузером потеряна; перезапуск через %s.",
                     format_wait_duration(retry_seconds),
+                    extra=event_data(LogEvent.BROWSER),
                 )
                 if shutdown_requested.wait(retry_seconds):
-                    LOGGER.info("Остановлено пользователем.")
+                    LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
                     return 0

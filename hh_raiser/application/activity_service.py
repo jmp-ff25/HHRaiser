@@ -18,7 +18,7 @@ from hh_raiser.domain.vacancy_response import (
 )
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -50,6 +50,7 @@ def run_permitted_activities(
         LOGGER.info(
             "Достигнут лимит уникальных вакансий; начат цикл уникальных просмотров № %s.",
             generation,
+            extra=event_data(LogEvent.SEARCH, vacancy_generation=generation),
         )
 
     for _ in range(policy.search_pages_per_cycle):
@@ -64,6 +65,7 @@ def run_permitted_activities(
                 LOGGER.info(
                     "Все известные страницы проверены; начат цикл уникальных просмотров № %s.",
                     generation,
+                    extra=event_data(LogEvent.SEARCH, vacancy_generation=generation),
                 )
                 continue
             break

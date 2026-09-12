@@ -9,7 +9,7 @@ from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
-from hh_raiser.logging_config import LOGGER
+from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 from hh_raiser.reporting.activity_report import append_activity_results
 from hh_raiser.reporting.response_report import ResponseReportError, export_response_workbook
 
@@ -41,10 +41,15 @@ class ActivityOrchestrator:
                     self.response_report_path,
                     self.history.response_records(),
                 )
-                LOGGER.info("Excel-журнал откликов обновлён: %s", self.response_report_path)
+                LOGGER.info(
+                    "Excel-журнал откликов обновлён: %s",
+                    self.response_report_path,
+                    extra=event_data(LogEvent.REPORT),
+                )
             except ResponseReportError:
                 LOGGER.warning(
                     "Excel-журнал откликов сейчас недоступен для записи. Закройте его "
-                    "в Excel; SQLite и JSONL уже сохранили результат."
+                    "в Excel; SQLite и JSONL уже сохранили результат.",
+                    extra=event_data(LogEvent.REPORT),
                 )
         return results

@@ -173,6 +173,11 @@ tasks:
     cmds:
       - uv run --locked hh-resume-raiser --help
 
+  log-colors:
+    desc: Показать палитру уровней и категорий логов без запуска браузера
+    cmds:
+      - uv run --locked python -m hh_raiser.log_color_demo
+
   format:
     desc: Отформатировать Python-код
     cmds:
