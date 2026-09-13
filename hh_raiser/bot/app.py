@@ -8,7 +8,7 @@ from html import escape
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand,
@@ -47,6 +47,20 @@ from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventi
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 _CALLBACK_PREFIX = "hh"
+
+
+async def edit_message_if_changed(
+    message: Message,
+    text: str,
+    keyboard: InlineKeyboardMarkup,
+) -> None:
+    """Ignore Telegram's harmless response when an inline view has not changed."""
+
+    try:
+        await message.edit_text(text, reply_markup=keyboard)
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error).lower():
+            raise
 
 
 class TelegramControlBot:
@@ -606,7 +620,7 @@ class TelegramControlBot:
         keyboard: InlineKeyboardMarkup,
     ) -> None:
         if isinstance(query.message, Message):
-            await query.message.edit_text(text, reply_markup=keyboard)
+            await edit_message_if_changed(query.message, text, keyboard)
 
     def _instances_keyboard(self) -> InlineKeyboardMarkup:
         rows = [

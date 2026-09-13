@@ -8,7 +8,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Page
+from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
@@ -18,6 +19,7 @@ _CAPTCHA_PATH = "/account/captcha"
 _CAPTCHA_HEADING = "Подтвердите, что вы не робот"
 _POLL_MILLISECONDS = 750
 _RESULT_WAIT_MILLISECONDS = 8_000
+_FORM_WAIT_MILLISECONDS = 10_000
 
 
 class OwnerInterventionCancelled(RuntimeError):
@@ -48,15 +50,15 @@ class CaptchaGuard:
             extra=event_data(LogEvent.AUTH),
         )
         while self.is_present(page):
-            input_field = page.get_by_placeholder("Текст с картинки", exact=True).first
-            submit = page.get_by_role("button", name="Отправить", exact=True).first
-            captcha_form = page.locator("form").filter(has=input_field).first
-            image = captcha_form.locator("img").first
-            if not image.count() or not input_field.count() or not submit.count():
+            image, input_field, submit = captcha_controls(page)
+            try:
+                for control in (image, input_field, submit):
+                    control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
+            except PlaywrightTimeoutError as error:
                 raise RuntimeError(
-                    "HH показал неподдерживаемую интерактивную проверку; "
-                    "требуется открыть браузер вручную."
-                )
+                    "Форма текстовой CAPTCHA HH не загрузилась полностью; "
+                    "автоматическая работа остановлена без дальнейших действий."
+                ) from error
 
             challenge_id = uuid.uuid4().hex
             screenshot_path = self.store.screenshot_dir / f"captcha-{challenge_id}.png"
@@ -158,3 +160,18 @@ def resolve_captcha(
         if is_closed_playwright_error(error):
             raise
         raise RuntimeError("Не удалось обработать CAPTCHA HH через Telegram.") from error
+
+
+def captcha_controls(page: Page) -> tuple[Locator, Locator, Locator]:
+    """Return semantic HH CAPTCHA controls with stable data-qa fallbacks."""
+
+    image = page.get_by_role("img", name="captcha", exact=True).or_(
+        page.locator('[data-qa="account-captcha-picture"]')
+    )
+    input_field = page.get_by_role("textbox", name="Текст с картинки", exact=True).or_(
+        page.locator('[data-qa="account-captcha-input"]')
+    )
+    submit = page.get_by_role("button", name="Отправить", exact=True).or_(
+        page.locator('[data-qa="account-captcha-submit"]')
+    )
+    return image.first, input_field.first, submit.first

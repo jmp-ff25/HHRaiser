@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, captcha_controls
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 
 
@@ -66,6 +66,42 @@ class CaptchaRecognitionTests(unittest.TestCase):
         heading.count.return_value = 0
 
         self.assertFalse(CaptchaGuard.is_present(page))
+
+    def test_uses_accessible_captcha_controls_with_stable_fallbacks(self) -> None:
+        page = MagicMock()
+        role_image = MagicMock()
+        role_input = MagicMock()
+        role_submit = MagicMock()
+        combined_image = MagicMock()
+        combined_input = MagicMock()
+        combined_submit = MagicMock()
+        page.get_by_role.side_effect = [role_image, role_input, role_submit]
+        role_image.or_.return_value = combined_image
+        role_input.or_.return_value = combined_input
+        role_submit.or_.return_value = combined_submit
+
+        controls = captcha_controls(page)
+
+        self.assertEqual(
+            controls,
+            (combined_image.first, combined_input.first, combined_submit.first),
+        )
+        page.get_by_role.assert_any_call("img", name="captcha", exact=True)
+        page.get_by_role.assert_any_call(
+            "textbox",
+            name="Текст с картинки",
+            exact=True,
+        )
+        page.get_by_role.assert_any_call("button", name="Отправить", exact=True)
+        selectors = [call.args[0] for call in page.locator.call_args_list]
+        self.assertEqual(
+            selectors,
+            [
+                '[data-qa="account-captcha-picture"]',
+                '[data-qa="account-captcha-input"]',
+                '[data-qa="account-captcha-submit"]',
+            ],
+        )
 
 
 if __name__ == "__main__":
