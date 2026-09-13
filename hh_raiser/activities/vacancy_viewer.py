@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -9,6 +9,7 @@ from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.matching import VacancyCompatibilityMatcher, VacancyDocument
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.selectors import (
@@ -41,6 +42,8 @@ def view_vacancies(
     policy: ActivityPolicy,
     *,
     matcher: VacancyCompatibilityMatcher | None = None,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> Iterator[VacancyViewOutcome]:
     yielded = False
     for index, url in enumerate(vacancy_urls, start=1):
@@ -52,6 +55,8 @@ def view_vacancies(
         try:
             page.bring_to_front()
             page.goto(canonical, wait_until="domcontentloaded")
+            if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                page.goto(canonical, wait_until="domcontentloaded")
             dismiss_hh_pro_modal(page)
             heading = page.locator(VACANCY_HEADING)
             if not heading.count():

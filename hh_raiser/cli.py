@@ -29,8 +29,13 @@ from hh_raiser.config import DEFAULT_CONFIG_PATH, resolve_runtime_settings
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_guard import (
+    CaptchaGuard,
+    OwnerInterventionCancelled,
+)
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
 from hh_raiser.infrastructure.hh.area_resolver import AreaResolutionError, resolve_current_areas
+from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER, LogEvent, configure_logging, event_data
 from hh_raiser.models import MOSCOW, PROFILE_URL
@@ -210,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--phone")
     parser.add_argument("--password")
     parser.add_argument("--credentials-file", type=Path)
+    parser.add_argument(
+        "--telegram-captcha",
+        action="store_true",
+        help="Приостановить работу при CAPTCHA и запросить ручной ответ через Telegram-бота.",
+    )
     parser.add_argument("--install-browser", action="store_true")
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--poll-seconds", type=int, default=600)
@@ -350,8 +360,18 @@ def run_browser_context(
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
+    captcha_guard = (
+        CaptchaGuard(OwnerInterventionStore(args.profile_dir.parent))
+        if args.telegram_captcha
+        else None
+    )
     try:
-        login_if_needed(page, args)
+        login_if_needed(
+            page,
+            args,
+            captcha_guard=captcha_guard,
+            stop_requested=should_stop,
+        )
         minimum_cooldown = timedelta(hours=args.minimum_cooldown_hours)
         activity_policy = ActivityPolicy(
             vacancies_per_cycle=args.vacancies_per_cycle,
@@ -379,6 +399,8 @@ def run_browser_context(
             response_report_path=(
                 args.profile_dir.parent / "vacancy-responses.xlsx" if args.auto_respond else None
             ),
+            captcha_guard=captcha_guard,
+            stop_requested=should_stop,
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -396,6 +418,8 @@ def run_browser_context(
                 capture=capture,
                 minimum_cooldown=minimum_cooldown,
                 page_refresh_seconds=args.page_refresh_seconds,
+                captcha_guard=captcha_guard,
+                stop_requested=should_stop,
             )
             if should_stop():
                 return
@@ -412,7 +436,12 @@ def run_browser_context(
             elif resume_refresh_enabled and (
                 next_resume_refresh_at is None or datetime.now(MOSCOW) >= next_resume_refresh_at
             ):
-                refresh_result = refresh_resume_index(page, profile_dir=args.profile_dir)
+                refresh_result = refresh_resume_index(
+                    page,
+                    profile_dir=args.profile_dir,
+                    captcha_guard=captcha_guard,
+                    stop_requested=should_stop,
+                )
                 append_activity_results(report_path, [refresh_result])
                 LOGGER.info(
                     "Активность %s: %s — %s",
@@ -591,6 +620,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             except KeyboardInterrupt:
                 LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
+                return 0
+            except OwnerInterventionCancelled:
+                LOGGER.info(
+                    "Ожидание ответа владельца остановлено; программа завершена.",
+                    extra=event_data(LogEvent.SYSTEM),
+                )
                 return 0
             except BrowserClosedDuringWait:
                 retry_seconds = min(max(args.poll_seconds, 1), 30)

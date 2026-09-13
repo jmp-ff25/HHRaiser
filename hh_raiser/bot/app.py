@@ -13,6 +13,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand,
     CallbackQuery,
+    ForceReply,
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -42,6 +43,7 @@ from hh_raiser.bot.statistics import (
     read_instance_statistics,
     response_report_path,
 )
+from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 _CALLBACK_PREFIX = "hh"
@@ -60,6 +62,10 @@ class TelegramControlBot:
         self.services = service_manager or SystemdServiceManager(user_mode=settings.user_systemd)
         self.config_stores = {
             key: IniConfigStore(instance.config_file, instance.state_dir)
+            for key, instance in settings.instances.items()
+        }
+        self.intervention_stores = {
+            key: OwnerInterventionStore(instance.state_dir)
             for key, instance in settings.instances.items()
         }
         self._awaiting_setting: dict[tuple[int, int], tuple[str, str]] = {}
@@ -280,6 +286,8 @@ class TelegramControlBot:
             return
         if message.from_user is None or message.text is None:
             return
+        if await self._submit_captcha_reply(message):
+            return
         pending_key = (message.from_user.id, message.chat.id)
         pending = self._awaiting_setting.get(pending_key)
         if pending is None:
@@ -308,6 +316,40 @@ class TelegramControlBot:
             self._change_preview_text(change),
             reply_markup=self._apply_setting_keyboard(instance),
         )
+
+    async def _submit_captcha_reply(self, message: Message) -> bool:
+        replied_to = message.reply_to_message
+        if replied_to is None:
+            return False
+        caption = replied_to.caption or ""
+        if not caption.startswith("🧩 Требуется подтверждение HH"):
+            return False
+        answer = " ".join((message.text or "").split())
+        if not 1 <= len(answer) <= 80 or not all(
+            character.isalnum() or character in " -_" for character in answer
+        ):
+            await message.answer(
+                "Ответ должен содержать от 1 до 80 букв или цифр. "
+                "Ответьте ещё раз именно на сообщение с изображением."
+            )
+            return True
+        for store in self.intervention_stores.values():
+            accepted = await asyncio.to_thread(
+                store.submit_reply,
+                message.from_user.id,
+                replied_to.message_id,
+                answer,
+            )
+            if accepted:
+                await message.answer(
+                    "✅ Ответ передан браузеру. Я сообщу результат в журнале; "
+                    "при ошибке пришлю новое изображение."
+                )
+                return True
+        await message.answer(
+            "Эта проверка уже обработана или устарела. Дождитесь нового изображения."
+        )
+        return True
 
     async def _show_change_preview(
         self,
@@ -512,6 +554,50 @@ class TelegramControlBot:
                         "Не удалось доставить периодическую сводку разрешённому пользователю.",
                         extra=event_data(LogEvent.NETWORK),
                     )
+
+    async def relay_owner_interventions(self, bot: Bot) -> None:
+        """Deliver new browser challenges and bind replies to one-time message IDs."""
+
+        while True:
+            for instance_key, instance in self.settings.instances.items():
+                store = self.intervention_stores[instance_key]
+                for user_id in self.settings.allowed_user_ids:
+                    challenges = await asyncio.to_thread(store.pending_for_user, user_id)
+                    for challenge in challenges:
+                        if not challenge.screenshot_path.is_file():
+                            continue
+                        try:
+                            sent = await bot.send_photo(
+                                chat_id=user_id,
+                                photo=FSInputFile(challenge.screenshot_path),
+                                caption=(
+                                    "🧩 <b>Требуется подтверждение HH</b>\n"
+                                    f"Экземпляр: <b>{escape(instance.name)}</b>\n\n"
+                                    f"{escape(challenge.prompt)}\n"
+                                    "Ответьте на это сообщение текстом с картинки. "
+                                    "Автоматическая работа безопасно приостановлена."
+                                ),
+                                reply_markup=ForceReply(
+                                    selective=True,
+                                    input_field_placeholder="Текст с картинки",
+                                ),
+                            )
+                            await asyncio.to_thread(
+                                store.mark_notified,
+                                challenge.challenge_id,
+                                user_id,
+                                sent.message_id,
+                            )
+                            LOGGER.info(
+                                "Запрос подтверждения HH отправлен разрешённому владельцу.",
+                                extra=event_data(LogEvent.AUTH),
+                            )
+                        except TelegramAPIError:
+                            LOGGER.warning(
+                                "Не удалось отправить CAPTCHA владельцу; повторю доставку позже.",
+                                extra=event_data(LogEvent.NETWORK),
+                            )
+            await asyncio.sleep(2)
 
     async def _edit(
         self,
@@ -765,6 +851,7 @@ async def run_telegram_bot(settings: BotSettings) -> None:
             extra=event_data(LogEvent.SYSTEM),
         )
         summary_task = asyncio.create_task(controller.send_periodic_summaries(bot))
+        intervention_task = asyncio.create_task(controller.relay_owner_interventions(bot))
         try:
             await dispatcher.start_polling(
                 bot,
@@ -773,5 +860,8 @@ async def run_telegram_bot(settings: BotSettings) -> None:
             )
         finally:
             summary_task.cancel()
+            intervention_task.cancel()
             with suppress(asyncio.CancelledError):
                 await summary_task
+            with suppress(asyncio.CancelledError):
+                await intervention_task

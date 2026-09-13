@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -8,6 +9,7 @@ from hh_raiser.application.activity_service import run_permitted_activities
 from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 from hh_raiser.reporting.activity_report import append_activity_results
@@ -25,6 +27,8 @@ class ActivityOrchestrator:
     history: VacancyHistory
     resume_title: str
     response_report_path: Path | None = None
+    captcha_guard: CaptchaGuard | None = None
+    stop_requested: Callable[[], bool] | None = None
 
     def run(self, page: Page) -> list[ActivityResult]:
         results = run_permitted_activities(
@@ -33,6 +37,8 @@ class ActivityOrchestrator:
             self.rotation,
             self.history,
             self.resume_title,
+            captcha_guard=self.captcha_guard,
+            stop_requested=self.stop_requested,
         )
         append_activity_results(self.report_path, results)
         if self.response_report_path is not None:

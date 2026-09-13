@@ -23,6 +23,8 @@ from hh_raiser.scheduling import decide_page_state
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Locator, Page, Response
 
+    from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
+
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 _CLOSED_PLAYWRIGHT_ERROR_MARKERS = (
@@ -97,8 +99,18 @@ def wait_for_manual_login(page: Page) -> None:
         )
 
 
-def login_if_needed(page: Page, args: argparse.Namespace) -> None:
+def login_if_needed(
+    page: Page,
+    args: argparse.Namespace,
+    *,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> None:
+    from hh_raiser.infrastructure.browser.captcha_guard import resolve_captcha
+
     page.goto(PROFILE_URL, wait_until="domcontentloaded")
+    if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+        page.goto(PROFILE_URL, wait_until="domcontentloaded")
     if "/applicant/profile/" in page.url:
         return
     credentials = resolve_credentials(args)

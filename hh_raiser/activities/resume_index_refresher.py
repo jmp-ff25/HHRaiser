@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_DESCRIPTION_INPUT,
@@ -147,12 +149,20 @@ def _write_next_target(profile_dir: Path, target_index: int) -> None:
     )
 
 
-def refresh_resume_index(page: Page, *, profile_dir: Path) -> ActivityResult:
+def refresh_resume_index(
+    page: Page,
+    *,
+    profile_dir: Path,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> ActivityResult:
     attempted_at = datetime.now(MOSCOW)
     write_resume_refresh_attempt(profile_dir, attempted_at)
     marker = _read_marker(profile_dir)
     try:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            page.goto(PROFILE_URL, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
         edit_buttons.first.wait_for(state="visible", timeout=15_000)

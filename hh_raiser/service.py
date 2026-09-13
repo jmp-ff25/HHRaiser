@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,6 +11,7 @@ from hh_raiser.browser import (
     wait_for_profile_content,
     wait_for_profile_raise_state,
 )
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import (
     dismiss_hh_pro_modal,
     hh_pro_modal_visible,
@@ -33,8 +35,12 @@ def run_cycle(
     capture: NetworkCapture,
     minimum_cooldown: timedelta,
     page_refresh_seconds: int,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> datetime | None:
     page.goto(PROFILE_URL, wait_until="domcontentloaded")
+    if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+        page.goto(PROFILE_URL, wait_until="domcontentloaded")
     dismiss_hh_pro_modal(page)
     wait_for_profile_content(
         page,

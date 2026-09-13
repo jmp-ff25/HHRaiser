@@ -110,6 +110,7 @@ class CliTests(unittest.TestCase):
                 "--auto-respond",
                 "--daily-response-limit",
                 "25",
+                "--telegram-captcha",
             ]
         )
         self.assertTrue(args.full_activity)
@@ -128,6 +129,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.match_threshold, 68)
         self.assertTrue(args.auto_respond)
         self.assertEqual(args.daily_response_limit, 25)
+        self.assertTrue(args.telegram_captcha)
 
     def test_automatic_responses_are_opt_in(self) -> None:
         args = build_parser().parse_args([])

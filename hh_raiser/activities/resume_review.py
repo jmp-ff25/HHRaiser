@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     PROFILE_EDUCATION,
@@ -21,9 +23,16 @@ if TYPE_CHECKING:
 from playwright.sync_api import Error as PlaywrightError
 
 
-def review_resume(page: Page) -> ActivityResult:
+def review_resume(
+    page: Page,
+    *,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> ActivityResult:
     try:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            page.goto(PROFILE_URL, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
         if not page.locator(RESUME_CARD).count():
             return ActivityResult(

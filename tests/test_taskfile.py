@@ -21,3 +21,10 @@ class TaskfileTests(unittest.TestCase):
 
         self.assertIn("hh-resume-raiser-bot", taskfile)
         self.assertIn("BOT_CONFIG_FILE", taskfile)
+
+    def test_server_worker_enables_manual_telegram_captcha(self) -> None:
+        service = (
+            Path(__file__).parents[1] / "deploy" / "systemd" / "hhraiser@.service"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("--telegram-captcha", service)

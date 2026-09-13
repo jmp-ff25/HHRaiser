@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,7 @@ from hh_raiser.domain.vacancy_response import (
     VacancyResponseRecord,
     VacancyResponseStatus,
 )
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
@@ -30,6 +32,9 @@ def run_permitted_activities(
     rotation: VacancyRotation,
     history: VacancyHistory,
     resume_title: str,
+    *,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> list[ActivityResult]:
     results: list[ActivityResult] = []
     completed_urls: set[str] = set()
@@ -72,8 +77,16 @@ def run_permitted_activities(
             break
 
         query, search_page = search
+        search_options = {"query": query, "search_page": search_page}
+        if captcha_guard is not None or stop_requested is not None:
+            search_options.update(
+                captcha_guard=captcha_guard,
+                stop_requested=stop_requested,
+            )
         search_result, vacancy_urls, page_count = view_search_page(
-            page, policy, query=query, search_page=search_page
+            page,
+            policy,
+            **search_options,
         )
         results.append(search_result)
         rotation.observe_search(query, search_page, page_count)
@@ -84,7 +97,13 @@ def run_permitted_activities(
             revisit_after_days=policy.revisit_after_days,
         )
         try:
-            for outcome in view_vacancies(page, candidates, policy, matcher=matcher):
+            view_options = {"matcher": matcher}
+            if captcha_guard is not None or stop_requested is not None:
+                view_options.update(
+                    captcha_guard=captcha_guard,
+                    stop_requested=stop_requested,
+                )
+            for outcome in view_vacancies(page, candidates, policy, **view_options):
                 results.append(outcome.result)
                 if not outcome.url:
                     continue
@@ -148,7 +167,16 @@ def run_permitted_activities(
             for url in candidates:
                 if url not in completed_urls:
                     history.release(url)
-    results.append(review_resume(page))
+    if captcha_guard is None and stop_requested is None:
+        results.append(review_resume(page))
+    else:
+        results.append(
+            review_resume(
+                page,
+                captcha_guard=captcha_guard,
+                stop_requested=stop_requested,
+            )
+        )
     return results
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
@@ -7,6 +8,7 @@ from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.search_url import build_search_url
@@ -35,7 +37,13 @@ def pagination_page_count(hrefs: list[str], *, current_page: int) -> int:
 
 
 def view_search_page(
-    page: Page, policy: ActivityPolicy, *, query: str, search_page: int
+    page: Page,
+    policy: ActivityPolicy,
+    *,
+    query: str,
+    search_page: int,
+    captcha_guard: CaptchaGuard | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> tuple[ActivityResult, list[str], int]:
     try:
         search_url = build_search_url(
@@ -44,6 +52,8 @@ def view_search_page(
             filters=policy.search_filters,
         )
         page.goto(search_url, wait_until="domcontentloaded")
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            page.goto(search_url, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
         cards = page.locator(VACANCY_CARD)
         links = page.locator(VACANCY_TITLE_LINK)
