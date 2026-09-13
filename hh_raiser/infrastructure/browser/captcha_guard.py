@@ -48,9 +48,10 @@ class CaptchaGuard:
             extra=event_data(LogEvent.AUTH),
         )
         while self.is_present(page):
-            image = page.locator('img[class*="CaptchaImage"]').first
             input_field = page.get_by_placeholder("Текст с картинки", exact=True).first
             submit = page.get_by_role("button", name="Отправить", exact=True).first
+            captcha_form = page.locator("form").filter(has=input_field).first
+            image = captcha_form.locator("img").first
             if not image.count() or not input_field.count() or not submit.count():
                 raise RuntimeError(
                     "HH показал неподдерживаемую интерактивную проверку; "
