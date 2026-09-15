@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -41,6 +42,7 @@ def run_permitted_activities(
     viewed_count = 0
     generation_advanced = False
     daily_response_limit_reported = False
+    viewed_by_query: Counter[str] = Counter()
     matcher = None
     if policy.vacancy_matching:
         matcher = VacancyCompatibilityMatcher(
@@ -59,14 +61,26 @@ def run_permitted_activities(
             extra=event_data(LogEvent.SEARCH, vacancy_generation=generation),
         )
 
+    rotation.begin_cycle()
+    query_quotas = rotation.allocate_slots(policy.vacancies_per_cycle)
+
     for _ in range(policy.search_pages_per_cycle):
         if viewed_count >= policy.vacancies_per_cycle:
             break
-        search = rotation.next_search()
+        quota_queries = {
+            query for query, quota in query_quotas.items() if viewed_by_query[query] < quota
+        }
+        search = rotation.next_search(quota_queries)
+        quota_limited = search is not None
+        if search is None:
+            # A narrow query may run out of pages before filling its fair share.
+            # Borrow the unused slots so the activity cycle can still reach its target.
+            search = rotation.next_search()
         if search is None:
             if policy.reset_on_exhaustion and not generation_advanced:
                 generation = history.advance_generation()
                 rotation.reset_coverage()
+                rotation.begin_cycle()
                 generation_advanced = True
                 LOGGER.info(
                     "Все известные страницы проверены; начат цикл уникальных просмотров № %s.",
@@ -88,14 +102,53 @@ def run_permitted_activities(
             policy,
             **search_options,
         )
+        search_result = replace(
+            search_result,
+            metadata={**search_result.metadata, "search_query": query},
+        )
         results.append(search_result)
         rotation.observe_search(query, search_page, page_count)
-        candidates = history.reserve_unseen(
+        remaining_total = policy.vacancies_per_cycle - viewed_count
+        query_limit = remaining_total
+        if quota_limited:
+            query_limit = min(
+                query_limit,
+                max(query_quotas[query] - viewed_by_query[query], 0),
+            )
+        reservation = history.reserve_candidates(
             vacancy_urls,
             search_query=query,
-            limit=policy.vacancies_per_cycle - viewed_count,
+            limit=query_limit,
             revisit_after_days=policy.revisit_after_days,
         )
+        history.record_search_page(
+            search_query=query,
+            page=search_page,
+            page_count=page_count,
+            reservation=reservation,
+        )
+        LOGGER.info(
+            "Поиск «%s»: страница %s из %s; найдено %s, впервые обнаружено %s, "
+            "доступно по истории %s, отобрано %s.",
+            query,
+            search_page + 1,
+            page_count,
+            reservation.discovered_count,
+            reservation.newly_discovered_count,
+            reservation.eligible_count,
+            len(reservation.urls),
+            extra=event_data(
+                LogEvent.SEARCH,
+                search_query=query,
+                search_page=search_page,
+                search_page_count=page_count,
+                discovered_count=reservation.discovered_count,
+                newly_discovered_count=reservation.newly_discovered_count,
+                eligible_count=reservation.eligible_count,
+                selected_count=len(reservation.urls),
+            ),
+        )
+        candidates = list(reservation.urls)
         try:
             view_options = {"matcher": matcher}
             if captcha_guard is not None or stop_requested is not None:
@@ -104,6 +157,13 @@ def run_permitted_activities(
                     stop_requested=stop_requested,
                 )
             for outcome in view_vacancies(page, candidates, policy, **view_options):
+                outcome = replace(
+                    outcome,
+                    result=replace(
+                        outcome.result,
+                        metadata={**outcome.result.metadata, "search_query": query},
+                    ),
+                )
                 results.append(outcome.result)
                 if not outcome.url:
                     continue
@@ -118,6 +178,7 @@ def run_permitted_activities(
                 if outcome.result.status is ActivityStatus.SUCCESS:
                     history.mark_viewed(outcome.url)
                     viewed_count += 1
+                    viewed_by_query[query] += 1
                     daily_limit_reached = (
                         policy.auto_respond
                         and policy.daily_response_limit > 0

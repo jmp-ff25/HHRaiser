@@ -47,6 +47,54 @@ class StorageTests(unittest.TestCase):
 
 
 class VacancyHistoryTests(unittest.TestCase):
+    def test_persists_search_page_coverage_and_selection_counters(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            reservation = history.reserve_candidates(
+                [
+                    "https://hh.ru/vacancy/101",
+                    "https://hh.ru/vacancy/102",
+                ],
+                search_query="Backend",
+                limit=1,
+                revisit_after_days=14,
+            )
+            history.record_search_page(
+                search_query="Backend",
+                page=3,
+                page_count=8,
+                reservation=reservation,
+            )
+
+            restored = history.search_coverage(("Backend",))
+
+        self.assertEqual(reservation.discovered_count, 2)
+        self.assertEqual(reservation.newly_discovered_count, 2)
+        self.assertEqual(reservation.eligible_count, 2)
+        self.assertEqual(len(reservation.urls), 1)
+        self.assertEqual(restored, {"Backend": (8, frozenset({3}))})
+
+    def test_new_generation_does_not_restore_previous_page_coverage(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            reservation = history.reserve_candidates(
+                ["https://hh.ru/vacancy/201"],
+                search_query="Python",
+                limit=1,
+                revisit_after_days=0,
+            )
+            history.record_search_page(
+                search_query="Python",
+                page=0,
+                page_count=2,
+                reservation=reservation,
+            )
+            history.advance_generation()
+
+            restored = history.search_coverage(("Python",))
+
+        self.assertEqual(restored, {})
+
     def test_existing_database_is_migrated_without_deleting_history(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "vacancy-history.sqlite3"

@@ -390,10 +390,12 @@ def run_browser_context(
             search_filters=args.search_filters,
         )
         report_path = args.profile_dir.parent / "activity-events.jsonl"
+        vacancy_rotation = VacancyRotation(queries=args.search_queries)
+        vacancy_rotation.restore_coverage(args.vacancy_history.search_coverage(args.search_queries))
         orchestrator = ActivityOrchestrator(
             policy=activity_policy,
             report_path=report_path,
-            rotation=VacancyRotation(queries=args.search_queries),
+            rotation=vacancy_rotation,
             history=args.vacancy_history,
             resume_title=args.resume_title,
             response_report_path=(

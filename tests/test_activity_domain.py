@@ -55,6 +55,51 @@ class SafeUrlTests(unittest.TestCase):
 
 
 class VacancyRotationTests(unittest.TestCase):
+    def test_allocates_cycle_slots_fairly(self) -> None:
+        rotation = VacancyRotation(
+            queries=("first", "second", "third", "fourth"),
+            randomizer=random.Random(2),
+        )
+
+        allocation = rotation.allocate_slots(10)
+
+        self.assertEqual(sum(allocation.values()), 10)
+        self.assertEqual(sorted(allocation.values()), [2, 2, 3, 3])
+
+    def test_refreshes_each_query_first_page_once_per_cycle(self) -> None:
+        rotation = VacancyRotation(
+            queries=("first", "second"),
+            randomizer=random.Random(4),
+        )
+        rotation.restore_coverage(
+            {
+                "first": (4, frozenset({0, 1})),
+                "second": (3, frozenset({0})),
+            }
+        )
+        rotation.begin_cycle()
+
+        searches = [rotation.next_search(), rotation.next_search()]
+
+        self.assertEqual(
+            {search for search in searches if search is not None},
+            {
+                ("first", 0),
+                ("second", 0),
+            },
+        )
+
+    def test_restored_coverage_skips_already_scanned_deep_pages(self) -> None:
+        rotation = VacancyRotation(queries=("python",), randomizer=random.Random(3))
+        rotation.restore_coverage({"python": (4, frozenset({0, 2}))})
+
+        search = rotation.next_search()
+
+        self.assertIsNotNone(search)
+        assert search is not None
+        self.assertEqual(search[0], "python")
+        self.assertIn(search[1], {1, 3})
+
     def test_starts_each_unknown_query_from_first_page(self) -> None:
         rotation = VacancyRotation(
             queries=("first", "second"),

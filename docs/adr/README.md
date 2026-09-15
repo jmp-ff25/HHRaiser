@@ -11,3 +11,4 @@ ADR фиксируют существенные архитектурные ре�
 - [ADR-0002: разрешённый список поисковых фильтров HH](0002-allowlisted-search-filters.md)
 - [ADR-0003: кроссплатформенные команды Task и окружение uv](0003-task-and-uv-tooling.md)
 - [ADR-0004: безопасные отклики и журнал результатов](0004-safe-vacancy-responses.md)
+- [ADR-0005: справедливый и сохраняемый поиск вакансий](0005-fair-persistent-vacancy-search.md)

@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand,
+    BufferedInputFile,
     CallbackQuery,
     ForceReply,
     FSInputFile,
@@ -20,6 +21,7 @@ from aiogram.types import (
     Message,
 )
 
+from hh_raiser.bot.charts import ChartReadError, render_statistics_dashboard
 from hh_raiser.bot.config_editor import (
     CATEGORY_LABELS,
     SETTINGS_BY_KEY,
@@ -156,6 +158,8 @@ class TelegramControlBot:
             await self._show_status(query, instance)
         elif action == "statistics":
             await self._show_statistics(query, instance)
+        elif action == "charts":
+            await self._send_charts(query, instance)
         elif action == "logs":
             await self._show_logs(query, instance)
         elif action == "report":
@@ -208,6 +212,32 @@ class TelegramControlBot:
         except ServiceCommandError as error:
             text = f"🔴 {escape(str(error))}"
         await self._edit(query, text, self._instance_keyboard(instance))
+
+    async def _send_charts(self, query: CallbackQuery, instance: ManagedInstance) -> None:
+        message = query.message
+        if not isinstance(message, Message):
+            return
+        try:
+            image = await asyncio.to_thread(
+                render_statistics_dashboard,
+                instance.state_dir,
+                instance_name=instance.name,
+            )
+        except ChartReadError as error:
+            await message.answer(
+                f"🔴 {escape(str(error))}",
+                reply_markup=self._instance_keyboard(instance),
+            )
+            return
+        await message.answer_photo(
+            BufferedInputFile(image, filename=f"{instance.key}-statistics.png"),
+            caption=(
+                f"📈 <b>Графики: {escape(instance.name)}</b>\n"
+                "Данные построены по локальной истории вакансий и откликов. "
+                "Одна вакансия может встречаться в статистике нескольких поисковых запросов."
+            ),
+            reply_markup=self._instance_keyboard(instance),
+        )
 
     async def _send_report(self, query: CallbackQuery, instance: ManagedInstance) -> None:
         message = query.message
@@ -665,6 +695,12 @@ class TelegramControlBot:
                         text="📥 Журнал откликов",
                         callback_data=f"{_CALLBACK_PREFIX}:report:{key}",
                     ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📈 Графики",
+                        callback_data=f"{_CALLBACK_PREFIX}:charts:{key}",
+                    )
                 ],
                 [
                     InlineKeyboardButton(

@@ -74,14 +74,16 @@ def view_vacancies(
             if company.count() > 0 and company.first.is_visible():
                 company_name = normalize_vacancy_title(company.first.inner_text())
             LOGGER.info(
-                "Открыта вакансия %s из %s: «%s».",
+                "Открыта вакансия %s из %s: «%s», компания «%s».",
                 index,
                 len(vacancy_urls),
                 vacancy_title,
+                company_name,
                 extra=event_data(
                     LogEvent.VACANCY_OPEN,
                     vacancy_index=index,
                     vacancy_title=vacancy_title,
+                    company_name=company_name,
                     vacancy_url=canonical,
                 ),
             )
@@ -162,14 +164,16 @@ def view_vacancies(
             scrolls_completed = 0
             if description_visible:
                 LOGGER.info(
-                    "Просматриваю вакансию %s из %s: «%s».",
+                    "Просматриваю вакансию %s из %s: «%s», компания «%s».",
                     index,
                     len(vacancy_urls),
                     vacancy_title,
+                    company_name,
                     extra=event_data(
                         LogEvent.VACANCY_VIEW,
                         vacancy_index=index,
                         vacancy_title=vacancy_title,
+                        company_name=company_name,
                         vacancy_url=canonical,
                     ),
                 )

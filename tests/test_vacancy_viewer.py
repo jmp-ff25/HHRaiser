@@ -74,6 +74,29 @@ class FakeVacancyPage:
 
 
 class VacancyViewerTests(unittest.TestCase):
+    def test_view_logs_include_company_name(self) -> None:
+        page = FakeVacancyPage()
+
+        with (
+            patch("hh_raiser.activities.vacancy_viewer.dismiss_hh_pro_modal"),
+            self.assertLogs("hh_resume_raiser", level="INFO") as captured,
+        ):
+            list(
+                view_vacancies(
+                    page,
+                    ["https://hh.ru/vacancy/123"],
+                    ActivityPolicy(
+                        vacancy_scrolls=0,
+                        scroll_pause_seconds=0,
+                        vacancy_view_seconds=0,
+                    ),
+                    matcher=None,
+                )
+            )
+
+        messages = "\n".join(captured.output)
+        self.assertIn("компания «Транспортная компания»", messages)
+
     def test_rejected_vacancy_is_scored_before_scroll_and_not_viewed(self) -> None:
         page = FakeVacancyPage()
         matcher = Mock()

@@ -21,6 +21,63 @@ def successful_result(action: ActivityKind) -> ActivityResult:
 
 
 class ActivityServiceTests(unittest.TestCase):
+    def test_distributes_successful_views_fairly_between_queries(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            rotation = VacancyRotation(
+                queries=("Python", "Backend"),
+                randomizer=random.Random(5),
+            )
+            policy = ActivityPolicy(
+                vacancies_per_cycle=4,
+                search_pages_per_cycle=4,
+                revisit_after_days=14,
+                vacancy_matching=False,
+            )
+            selected_queries: list[str] = []
+
+            def search_page(_page, _policy, *, query: str, search_page: int):
+                self.assertEqual(search_page, 0)
+                base = 100 if query == "Python" else 200
+                urls = [f"https://hh.ru/vacancy/{base + offset}" for offset in range(1, 6)]
+                return successful_result(ActivityKind.REVIEW_SEARCH), urls, 3
+
+            def view_pages(_page, urls: list[str], _policy, *, matcher=None):
+                self.assertIsNone(matcher)
+                selected_queries.extend("Python" if "/1" in url else "Backend" for url in urls)
+                return [
+                    VacancyViewOutcome(
+                        url=url,
+                        result=successful_result(ActivityKind.VIEW_VACANCY),
+                    )
+                    for url in urls
+                ]
+
+            with (
+                patch(
+                    "hh_raiser.application.activity_service.view_search_page",
+                    side_effect=search_page,
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.view_vacancies",
+                    side_effect=view_pages,
+                ),
+                patch(
+                    "hh_raiser.application.activity_service.review_resume",
+                    return_value=successful_result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_permitted_activities(
+                    object(),
+                    policy,
+                    rotation,
+                    history,
+                    "Python-разработчик",
+                )
+
+        self.assertEqual(selected_queries.count("Python"), 2)
+        self.assertEqual(selected_queries.count("Backend"), 2)
+
     def test_manual_response_requirement_does_not_stop_next_vacancy(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")

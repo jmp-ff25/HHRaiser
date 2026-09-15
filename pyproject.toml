@@ -13,6 +13,7 @@ authors = [
 ]
 dependencies = [
     "aiogram>=3.31,<4",
+    "matplotlib>=3.10,<4",
     "playwright>=1.62,<2",
     "rich>=14,<15",
     "xlsxwriter>=3.2,<4",

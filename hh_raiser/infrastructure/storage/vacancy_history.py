@@ -4,6 +4,7 @@ import random
 import re
 import sqlite3
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -16,6 +17,16 @@ from hh_raiser.domain.vacancy_response import (
 from hh_raiser.models import MOSCOW
 
 VACANCY_ID_PATTERN = re.compile(r"/vacancy/(\d+)$")
+
+
+@dataclass(frozen=True)
+class VacancyReservation:
+    """Eligible vacancy URLs plus counters explaining how the selection was made."""
+
+    urls: tuple[str, ...]
+    discovered_count: int
+    newly_discovered_count: int
+    eligible_count: int
 
 
 def vacancy_id_from_url(url: str) -> str | None:
@@ -96,6 +107,21 @@ class VacancyHistory:
                 ON vacancy_responses(status);
                 CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status_time
                 ON vacancy_responses(status, occurred_at);
+
+                CREATE TABLE IF NOT EXISTS search_page_coverage (
+                    search_query TEXT NOT NULL,
+                    page INTEGER NOT NULL,
+                    page_count INTEGER NOT NULL,
+                    last_scanned_at TEXT NOT NULL,
+                    last_scanned_generation INTEGER NOT NULL,
+                    discovered_count INTEGER NOT NULL DEFAULT 0,
+                    newly_discovered_count INTEGER NOT NULL DEFAULT 0,
+                    eligible_count INTEGER NOT NULL DEFAULT 0,
+                    selected_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (search_query, page)
+                );
+                CREATE INDEX IF NOT EXISTS idx_search_page_coverage_generation
+                ON search_page_coverage(last_scanned_generation);
                 """
             )
             columns = {
@@ -149,13 +175,34 @@ class VacancyHistory:
         lease_seconds: int = 900,
     ) -> list[str]:
         """Atomically reserve eligible vacancies so future workers cannot duplicate them."""
+        return list(
+            self.reserve_candidates(
+                urls,
+                search_query=search_query,
+                limit=limit,
+                revisit_after_days=revisit_after_days,
+                lease_seconds=lease_seconds,
+            ).urls
+        )
+
+    def reserve_candidates(
+        self,
+        urls: list[str],
+        *,
+        search_query: str,
+        limit: int,
+        revisit_after_days: int,
+        lease_seconds: int = 900,
+    ) -> VacancyReservation:
+        """Reserve candidates and expose non-sensitive selection counters for diagnostics."""
+
         if limit <= 0:
-            return []
+            return VacancyReservation((), 0, 0, 0)
         id_to_url = {
             vacancy_id: url for url in urls if (vacancy_id := vacancy_id_from_url(url)) is not None
         }
         if not id_to_url:
-            return []
+            return VacancyReservation((), 0, 0, 0)
 
         now = datetime.now(MOSCOW)
         now_text = now.isoformat()
@@ -164,8 +211,13 @@ class VacancyHistory:
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             generation = self._read_generation(connection)
-            self._record_discovered(connection, id_to_url, search_query, now_text)
             placeholders = ",".join("?" for _ in id_to_url)
+            existing_count_row = connection.execute(
+                f"SELECT COUNT(*) FROM vacancies WHERE vacancy_id IN ({placeholders})",
+                tuple(id_to_url),
+            ).fetchone()
+            existing_count = int(existing_count_row[0]) if existing_count_row else 0
+            self._record_discovered(connection, id_to_url, search_query, now_text)
             rows = connection.execute(
                 f"""
                 SELECT vacancy_id
@@ -191,7 +243,88 @@ class VacancyHistory:
                     """,
                     (generation, reserved_until, *selected_ids),
                 )
-        return [id_to_url[vacancy_id] for vacancy_id in selected_ids]
+        return VacancyReservation(
+            urls=tuple(id_to_url[vacancy_id] for vacancy_id in selected_ids),
+            discovered_count=len(id_to_url),
+            newly_discovered_count=len(id_to_url) - existing_count,
+            eligible_count=len(candidate_ids),
+        )
+
+    def search_coverage(
+        self,
+        queries: tuple[str, ...],
+    ) -> dict[str, tuple[int, frozenset[int]]]:
+        """Load page coverage for configured queries in the current logical generation."""
+
+        if not queries:
+            return {}
+        placeholders = ",".join("?" for _ in queries)
+        with closing(self._connect()) as connection, connection:
+            generation = self._read_generation(connection)
+            rows = connection.execute(
+                f"""
+                SELECT search_query, page, page_count
+                FROM search_page_coverage
+                WHERE last_scanned_generation = ?
+                  AND search_query IN ({placeholders})
+                """,
+                (generation, *queries),
+            ).fetchall()
+        page_counts: dict[str, int] = {}
+        scanned_pages: dict[str, set[int]] = {}
+        for query, page, page_count in rows:
+            query_text = str(query)
+            page_counts[query_text] = max(page_counts.get(query_text, 1), int(page_count), 1)
+            scanned_pages.setdefault(query_text, set()).add(int(page))
+        return {
+            query: (page_counts[query], frozenset(scanned_pages[query])) for query in page_counts
+        }
+
+    def record_search_page(
+        self,
+        *,
+        search_query: str,
+        page: int,
+        page_count: int,
+        reservation: VacancyReservation,
+    ) -> None:
+        """Persist page coverage so a restart does not restart exploration from scratch."""
+
+        with closing(self._connect()) as connection, connection:
+            generation = self._read_generation(connection)
+            connection.execute(
+                """
+                INSERT INTO search_page_coverage(
+                    search_query, page, page_count, last_scanned_at,
+                    last_scanned_generation, discovered_count,
+                    newly_discovered_count, eligible_count, selected_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(search_query, page) DO UPDATE SET
+                    page_count = CASE
+                        WHEN search_page_coverage.last_scanned_generation =
+                             excluded.last_scanned_generation
+                        THEN MAX(search_page_coverage.page_count, excluded.page_count)
+                        ELSE excluded.page_count
+                    END,
+                    last_scanned_at = excluded.last_scanned_at,
+                    last_scanned_generation = excluded.last_scanned_generation,
+                    discovered_count = excluded.discovered_count,
+                    newly_discovered_count = excluded.newly_discovered_count,
+                    eligible_count = excluded.eligible_count,
+                    selected_count = excluded.selected_count
+                """,
+                (
+                    search_query,
+                    page,
+                    max(page_count, 1),
+                    datetime.now(MOSCOW).isoformat(),
+                    generation,
+                    reservation.discovered_count,
+                    reservation.newly_discovered_count,
+                    reservation.eligible_count,
+                    len(reservation.urls),
+                ),
+            )
 
     def mark_viewed(self, url: str) -> None:
         vacancy_id = vacancy_id_from_url(url)
