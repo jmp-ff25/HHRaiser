@@ -27,6 +27,7 @@ from hh_raiser.browser import (
     wait_for_profile_content,
 )
 from hh_raiser.config import DEFAULT_CONFIG_PATH, resolve_runtime_settings
+from hh_raiser.credentials import read_credentials_file
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
@@ -562,6 +563,12 @@ def main(argv: list[str] | None = None) -> int:
         return subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=False
         ).returncode
+    if args.credentials_file:
+        try:
+            args.credentials_from_file = read_credentials_file(args.credentials_file)
+        except ValueError as error:
+            LOGGER.error("%s", error, extra=event_data(LogEvent.AUTH))
+            return 2
     try:
         settings = resolve_runtime_settings(args)
     except ValueError as error:

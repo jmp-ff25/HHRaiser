@@ -34,5 +34,14 @@ class CredentialsTests(unittest.TestCase):
             credentials = read_credentials_file(path)
         self.assertEqual(credentials, Credentials(phone="+79990000000", password="secret"))
 
+    def test_missing_credentials_file_explains_how_to_fix_it(self) -> None:
+        missing_path = Path("missing-hh-credentials.ini")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Файл учётных данных не найден.*--credentials-file",
+        ):
+            read_credentials_file(missing_path)
+
     def test_normalizes_russian_phone(self) -> None:
         self.assertEqual(normalize_russian_phone("+7(991) 174-28-79"), "9911742879")

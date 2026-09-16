@@ -27,6 +27,13 @@ def parse_ini_credentials(text: str) -> Credentials:
 
 
 def read_credentials_file(path: Path) -> Credentials:
+    if not path.exists():
+        raise ValueError(
+            f"Файл учётных данных не найден: {path}. "
+            "Добавьте файл в папку проекта или укажите путь через --credentials-file."
+        )
+    if not path.is_file():
+        raise ValueError(f"Путь к файлу учётных данных не является файлом: {path}")
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
@@ -35,7 +42,9 @@ def read_credentials_file(path: Path) -> Credentials:
 
 
 def resolve_credentials(args: argparse.Namespace) -> Credentials:
-    from_file = read_credentials_file(args.credentials_file) if args.credentials_file else None
+    from_file = getattr(args, "credentials_from_file", None)
+    if from_file is None and args.credentials_file:
+        from_file = read_credentials_file(args.credentials_file)
     phone = args.phone or os.environ.get("HH_PHONE") or (from_file.phone if from_file else None)
     password = (
         args.password
