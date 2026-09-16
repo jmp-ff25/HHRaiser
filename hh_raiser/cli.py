@@ -30,6 +30,7 @@ from hh_raiser.credentials import read_credentials_file
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.infrastructure.browser.captcha_answer_source import WebsiteCaptchaAnswerSource
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
     CaptchaResolver,
@@ -308,6 +309,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Приостановить работу при CAPTCHA и запросить ручной ответ через Telegram-бота.",
     )
+    parser.add_argument(
+        "--captcha-answer-source",
+        choices=("none", "website"),
+        default="none",
+        help=(
+            "Дополнительный ручной источник ответа CAPTCHA. website пока является "
+            "заглушкой и не заменяет Telegram или ввод в Chromium."
+        ),
+    )
     parser.add_argument("--install-browser", action="store_true")
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--poll-seconds", type=int, default=600)
@@ -453,10 +463,16 @@ def run_browser_context(
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
+    answer_source = (
+        WebsiteCaptchaAnswerSource() if args.captcha_answer_source == "website" else None
+    )
     captcha_guard = (
-        CaptchaGuard(OwnerInterventionStore(args.profile_dir.parent))
+        CaptchaGuard(
+            OwnerInterventionStore(args.profile_dir.parent),
+            answer_source=answer_source,
+        )
         if args.telegram_captcha
-        else ManualCaptchaGuard(headless=args.headless)
+        else ManualCaptchaGuard(headless=args.headless, answer_source=answer_source)
     )
     try:
         login_if_needed(

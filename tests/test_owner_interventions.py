@@ -5,6 +5,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
+from hh_raiser.infrastructure.browser.captcha_answer_source import (
+    CaptchaRequest,
+    WebsiteCaptchaAnswerSource,
+)
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
     ManualCaptchaGuard,
@@ -54,6 +58,17 @@ class OwnerInterventionStoreTests(unittest.TestCase):
             store.cancel_pending()
             self.assertEqual(store.pending_for_user(200), [])
             self.assertFalse(screenshot.exists())
+
+
+class WebsiteCaptchaAnswerSourceTests(unittest.TestCase):
+    def test_stub_does_not_return_or_send_a_captcha_answer(self) -> None:
+        source = WebsiteCaptchaAnswerSource()
+
+        answer = source.get_answer(
+            CaptchaRequest(challenge_id="one", image_bytes=b"png", prompt="Введите текст")
+        )
+
+        self.assertIsNone(answer)
 
 
 class CaptchaRecognitionTests(unittest.TestCase):

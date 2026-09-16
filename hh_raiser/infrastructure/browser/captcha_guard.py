@@ -13,6 +13,10 @@ from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from hh_raiser.browser import is_closed_playwright_error
+from hh_raiser.infrastructure.browser.captcha_answer_source import (
+    CaptchaAnswerSource,
+    CaptchaRequest,
+)
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
@@ -46,8 +50,14 @@ class ManualCaptchaRequired(RuntimeError):
 class ManualCaptchaGuard:
     """Приостановить видимый браузер, пока владелец не решит CAPTCHA HH."""
 
-    def __init__(self, *, headless: bool) -> None:
+    def __init__(
+        self,
+        *,
+        headless: bool,
+        answer_source: CaptchaAnswerSource | None = None,
+    ) -> None:
         self.headless = headless
+        self.answer_source = answer_source
 
     def resolve_if_present(
         self,
@@ -64,6 +74,8 @@ class ManualCaptchaGuard:
             )
 
         should_stop = stop_requested or (lambda: False)
+        if _submit_external_answer(page, self.answer_source):
+            return True
         LOGGER.warning(
             "HH запросил CAPTCHA; активность приостановлена. "
             "Завершите проверку в открытом окне Chromium.",
@@ -83,8 +95,14 @@ class ManualCaptchaGuard:
 class CaptchaGuard:
     """Приостановить Playwright и передать текстовую CAPTCHA HH через локальный ящик."""
 
-    def __init__(self, store: OwnerInterventionStore) -> None:
+    def __init__(
+        self,
+        store: OwnerInterventionStore,
+        *,
+        answer_source: CaptchaAnswerSource | None = None,
+    ) -> None:
         self.store = store
+        self.answer_source = answer_source
         self.store.cancel_pending()
 
     def resolve_if_present(
@@ -124,6 +142,22 @@ class CaptchaGuard:
                 screenshot_path,
                 "Введите текст с изображения. Регистр обычно не важен.",
             )
+            external_answer = _answer_from_source(
+                self.answer_source,
+                CaptchaRequest(
+                    challenge_id=challenge_id,
+                    image_bytes=image_bytes,
+                    prompt="Введите текст с изображения. Регистр обычно не важен.",
+                ),
+            )
+            if external_answer is not None:
+                input_field.fill(external_answer)
+                submit.click()
+                if self._wait_for_result(page, should_stop):
+                    self.store.finish(challenge_id, "resolved")
+                    return True
+                self.store.finish(challenge_id, "failed")
+                continue
             answer = self._wait_for_answer(page, challenge_id, should_stop)
             current_fingerprint = hashlib.sha256(image.screenshot(type="png")).digest()
             if current_fingerprint != fingerprint:
@@ -214,6 +248,47 @@ def resolve_captcha(
         if is_closed_playwright_error(error):
             raise
         raise RuntimeError("Не удалось обработать CAPTCHA HH.") from error
+
+
+def _submit_external_answer(page: Page, answer_source: CaptchaAnswerSource | None) -> bool:
+    """Ввести ответ личного сайта, если тот уже доступен; иначе оставить ручной режим."""
+
+    if answer_source is None:
+        return False
+    image, input_field, submit = captcha_controls(page)
+    try:
+        for control in (image, input_field, submit):
+            control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
+    except PlaywrightTimeoutError:
+        return False
+    answer = _answer_from_source(
+        answer_source,
+        CaptchaRequest(
+            challenge_id=uuid.uuid4().hex,
+            image_bytes=image.screenshot(type="png"),
+            prompt="Введите текст с изображения. Регистр обычно не важен.",
+        ),
+    )
+    if answer is None:
+        return False
+    input_field.fill(answer)
+    submit.click()
+    return not CaptchaGuard.is_present(page)
+
+
+def _answer_from_source(
+    source: CaptchaAnswerSource | None,
+    request: CaptchaRequest,
+) -> str | None:
+    """Нормализовать короткий ручной ответ, не позволяя источнику менять браузер."""
+
+    if source is None:
+        return None
+    answer = source.get_answer(request)
+    if answer is None:
+        return None
+    normalized = " ".join(answer.split())
+    return normalized if 1 <= len(normalized) <= 80 else None
 
 
 def captcha_controls(page: Page) -> tuple[Locator, Locator, Locator]:
