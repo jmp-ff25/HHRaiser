@@ -26,6 +26,47 @@ class OwnerInterventionCancelled(RuntimeError):
     """Raised when HHRaiser is stopped while waiting for its owner."""
 
 
+class ManualCaptchaRequired(RuntimeError):
+    """Raised when a headless local run cannot be completed without the owner."""
+
+
+class ManualCaptchaGuard:
+    """Pause a visible local browser until the owner completes HH's CAPTCHA."""
+
+    def __init__(self, *, headless: bool) -> None:
+        self.headless = headless
+
+    def resolve_if_present(
+        self,
+        page: Page,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> bool:
+        if not CaptchaGuard.is_present(page):
+            return False
+        if self.headless:
+            raise ManualCaptchaRequired(
+                "HH запросил CAPTCHA, но Chromium запущен без окна. "
+                "Запустите видимый режим или включите --telegram-captcha."
+            )
+
+        should_stop = stop_requested or (lambda: False)
+        LOGGER.warning(
+            "HH запросил CAPTCHA; активность приостановлена. "
+            "Завершите проверку в открытом окне Chromium.",
+            extra=event_data(LogEvent.AUTH),
+        )
+        while CaptchaGuard.is_present(page):
+            if should_stop() or page.is_closed():
+                raise OwnerInterventionCancelled
+            page.wait_for_timeout(_POLL_MILLISECONDS)
+        LOGGER.info(
+            "CAPTCHA подтверждена в Chromium; автоматическая работа продолжена.",
+            extra=event_data(LogEvent.AUTH),
+        )
+        return True
+
+
 class CaptchaGuard:
     """Pause Playwright and relay HH text CAPTCHA challenges through a local mailbox."""
 
@@ -145,7 +186,7 @@ class CaptchaGuard:
 
 
 def resolve_captcha(
-    guard: CaptchaGuard | None,
+    guard: CaptchaGuard | ManualCaptchaGuard | None,
     page: Page,
     *,
     stop_requested: Callable[[], bool] | None = None,

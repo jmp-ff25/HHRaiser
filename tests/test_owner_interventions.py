@@ -3,9 +3,14 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, captcha_controls
+from hh_raiser.infrastructure.browser.captcha_guard import (
+    CaptchaGuard,
+    ManualCaptchaGuard,
+    ManualCaptchaRequired,
+    captcha_controls,
+)
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 
 
@@ -102,6 +107,32 @@ class CaptchaRecognitionTests(unittest.TestCase):
                 '[data-qa="account-captcha-submit"]',
             ],
         )
+
+    def test_visible_browser_waits_for_owner_to_complete_captcha(self) -> None:
+        page = MagicMock()
+        page.is_closed.return_value = False
+        guard = ManualCaptchaGuard(headless=False)
+
+        with patch(
+            "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+            side_effect=[True, True, False],
+        ):
+            self.assertTrue(guard.resolve_if_present(page))
+
+        page.wait_for_timeout.assert_called_once()
+
+    def test_headless_browser_stops_for_manual_captcha(self) -> None:
+        page = MagicMock()
+        guard = ManualCaptchaGuard(headless=True)
+
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                return_value=True,
+            ),
+            self.assertRaisesRegex(ManualCaptchaRequired, "без окна"),
+        ):
+            guard.resolve_if_present(page)
 
 
 if __name__ == "__main__":

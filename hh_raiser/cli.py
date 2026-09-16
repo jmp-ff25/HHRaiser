@@ -33,6 +33,8 @@ from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
+    ManualCaptchaGuard,
+    ManualCaptchaRequired,
     OwnerInterventionCancelled,
 )
 from hh_raiser.infrastructure.browser.playwright_browser import maximize_browser_window
@@ -388,7 +390,7 @@ def run_browser_context(
     captcha_guard = (
         CaptchaGuard(OwnerInterventionStore(args.profile_dir.parent))
         if args.telegram_captcha
-        else None
+        else ManualCaptchaGuard(headless=args.headless)
     )
     try:
         login_if_needed(
@@ -662,6 +664,9 @@ def main(argv: list[str] | None = None) -> int:
                     extra=event_data(LogEvent.SYSTEM),
                 )
                 return 0
+            except ManualCaptchaRequired as error:
+                LOGGER.error("%s", error, extra=event_data(LogEvent.AUTH))
+                return 2
             except BrowserClosedDuringWait:
                 retry_seconds = min(max(args.poll_seconds, 1), 30)
                 LOGGER.warning(
