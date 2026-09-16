@@ -38,6 +38,7 @@ class ResponseReportTests(unittest.TestCase):
                 search_query="Python",
                 match_score=78,
                 manual_reason=ManualResponseReason.QUESTIONNAIRE,
+                post_response_modal_text="HH показал рекомендации по откликам.",
             ),
         ]
         with TemporaryDirectory() as directory:
@@ -52,4 +53,6 @@ class ResponseReportTests(unittest.TestCase):
         self.assertIn("Статус", table_xml)
         self.assertIn("Успешно отправлен", strings_xml)
         self.assertIn("Требуется участие кандидата", strings_xml)
+        self.assertIn("Сообщение HH после отклика", strings_xml)
+        self.assertIn("HH показал рекомендации по откликам.", strings_xml)
         self.assertIn("https://hh.ru/vacancy/123", links_xml)

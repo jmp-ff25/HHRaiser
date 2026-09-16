@@ -115,21 +115,45 @@ class VacancyHistoryTests(unittest.TestCase):
                     );
                     INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
                     VALUES ('123', '2026-09-01', '2026-09-01');
+                    CREATE TABLE vacancy_responses (
+                        vacancy_id TEXT PRIMARY KEY,
+                        occurred_at TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        detail TEXT NOT NULL,
+                        vacancy_title TEXT NOT NULL,
+                        company_name TEXT NOT NULL,
+                        search_query TEXT NOT NULL,
+                        match_score INTEGER,
+                        manual_reason TEXT
+                    );
+                    INSERT INTO vacancy_responses(
+                        vacancy_id, occurred_at, status, detail, vacancy_title,
+                        company_name, search_query, match_score, manual_reason
+                    ) VALUES (
+                        '123', '2026-09-01T10:00:00+03:00', 'sent', 'Подтверждено.',
+                        'Python developer', 'Example', 'Python', 80, NULL
+                    );
                     """
                 )
 
-            VacancyHistory(path)
+            history = VacancyHistory(path)
 
             with closing(sqlite3.connect(path)) as connection, connection:
                 columns = {
                     str(row[1]) for row in connection.execute("PRAGMA table_info(vacancies)")
+                }
+                response_columns = {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(vacancy_responses)")
                 }
                 row = connection.execute(
                     "SELECT vacancy_id FROM vacancies WHERE vacancy_id = '123'"
                 ).fetchone()
             self.assertIn("last_match_score", columns)
             self.assertIn("last_match_accepted", columns)
+            self.assertIn("post_response_modal_text", response_columns)
             self.assertEqual(row, ("123",))
+            self.assertEqual(history.response_records()[0].detail, "Подтверждено.")
 
     def test_extracts_only_canonical_vacancy_identifier(self) -> None:
         self.assertEqual(vacancy_id_from_url("https://hh.ru/vacancy/123"), "123")
@@ -221,6 +245,7 @@ class VacancyHistoryTests(unittest.TestCase):
                 search_query="Python",
                 match_score=75,
                 manual_reason=ManualResponseReason.QUESTIONNAIRE,
+                post_response_modal_text="HH показал информационное окно.",
             )
 
             self.assertTrue(history.record_response(record))

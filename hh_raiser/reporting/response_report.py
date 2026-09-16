@@ -41,6 +41,7 @@ _HEADERS = (
     "ID вакансии",
     "Ссылка",
     "Комментарий",
+    "Сообщение HH после отклика",
 )
 
 
@@ -115,6 +116,7 @@ def _write_workbook(path: Path, records: list[VacancyResponseRecord]) -> None:
                 "Открыть",
             )
             worksheet.write(row_index, 9, record.detail)
+            worksheet.write(row_index, 10, record.post_response_modal_text or "")
 
         last_row = start_row + max(len(records), 1)
         worksheet.add_table(
@@ -135,6 +137,7 @@ def _write_workbook(path: Path, records: list[VacancyResponseRecord]) -> None:
         worksheet.set_column(7, 7, 15)
         worksheet.set_column(8, 8, 13)
         worksheet.set_column(9, 9, 58)
+        worksheet.set_column(10, 10, 72)
         worksheet.set_row(start_row, 28)
 
         data_first_row = start_row + 1

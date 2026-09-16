@@ -268,5 +268,10 @@ def _record_response(history: VacancyHistory, result: ActivityResult) -> None:
             search_query=str(metadata.get("search_query") or ""),
             match_score=int(match_score_value) if match_score_value is not None else None,
             manual_reason=manual_reason,
+            post_response_modal_text=(
+                str(metadata["post_response_modal_text"])
+                if metadata.get("post_response_modal_text")
+                else None
+            ),
         )
     )

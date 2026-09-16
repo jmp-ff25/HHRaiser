@@ -37,6 +37,7 @@ class VacancyResponseRecord:
     search_query: str
     match_score: int | None
     manual_reason: ManualResponseReason | None = None
+    post_response_modal_text: str | None = None
 
     @classmethod
     def now(
@@ -50,6 +51,7 @@ class VacancyResponseRecord:
         search_query: str,
         match_score: int | None,
         manual_reason: ManualResponseReason | None = None,
+        post_response_modal_text: str | None = None,
     ) -> VacancyResponseRecord:
         return cls(
             vacancy_id=vacancy_id,
@@ -61,4 +63,5 @@ class VacancyResponseRecord:
             search_query=search_query,
             match_score=match_score,
             manual_reason=manual_reason,
+            post_response_modal_text=post_response_modal_text,
         )

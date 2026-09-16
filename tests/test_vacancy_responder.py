@@ -137,6 +137,10 @@ class VacancyResponderTests(unittest.TestCase):
                 side_effect=[False, True],
             ),
             patch(
+                "hh_raiser.activities.vacancy_responder._read_post_response_modal_text",
+                return_value="HH советует дополнить отклики опытом.",
+            ),
+            patch(
                 "hh_raiser.activities.vacancy_responder._read_public_response_requirements",
                 return_value=None,
             ),
@@ -151,3 +155,7 @@ class VacancyResponderTests(unittest.TestCase):
         button.click.assert_called_once()
         self.assertEqual(result.status, ActivityStatus.SUCCESS)
         self.assertEqual(result.metadata["response_status"], "sent")
+        self.assertEqual(
+            result.metadata["post_response_modal_text"],
+            "HH советует дополнить отклики опытом.",
+        )

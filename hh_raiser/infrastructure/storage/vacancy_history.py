@@ -109,7 +109,8 @@ class VacancyHistory:
                     company_name TEXT NOT NULL,
                     search_query TEXT NOT NULL,
                     match_score INTEGER,
-                    manual_reason TEXT
+                    manual_reason TEXT,
+                    post_response_modal_text TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status
                 ON vacancy_responses(status);
@@ -144,6 +145,14 @@ class VacancyHistory:
             for column, definition in migrations.items():
                 if column not in columns:
                     connection.execute(f"ALTER TABLE vacancies ADD COLUMN {column} {definition}")
+            response_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(vacancy_responses)").fetchall()
+            }
+            if "post_response_modal_text" not in response_columns:
+                connection.execute(
+                    "ALTER TABLE vacancy_responses ADD COLUMN post_response_modal_text TEXT"
+                )
 
     @property
     def generation(self) -> int:
@@ -419,8 +428,8 @@ class VacancyHistory:
                 """
                 INSERT INTO vacancy_responses(
                     vacancy_id, occurred_at, status, detail, vacancy_title,
-                    company_name, search_query, match_score, manual_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    company_name, search_query, match_score, manual_reason, post_response_modal_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(vacancy_id) DO UPDATE SET
                     occurred_at = excluded.occurred_at,
                     status = excluded.status,
@@ -429,7 +438,8 @@ class VacancyHistory:
                     company_name = excluded.company_name,
                     search_query = excluded.search_query,
                     match_score = excluded.match_score,
-                    manual_reason = excluded.manual_reason
+                    manual_reason = excluded.manual_reason,
+                    post_response_modal_text = excluded.post_response_modal_text
                 WHERE vacancy_responses.status IN ('error', 'unavailable')
                 """,
                 (
@@ -442,6 +452,7 @@ class VacancyHistory:
                     record.search_query,
                     record.match_score,
                     record.manual_reason.value if record.manual_reason else None,
+                    record.post_response_modal_text,
                 ),
             )
         return cursor.rowcount > 0
@@ -451,7 +462,7 @@ class VacancyHistory:
             rows = connection.execute(
                 """
                 SELECT vacancy_id, occurred_at, status, detail, vacancy_title,
-                       company_name, search_query, match_score, manual_reason
+                       company_name, search_query, match_score, manual_reason, post_response_modal_text
                 FROM vacancy_responses
                 ORDER BY occurred_at DESC
                 """
@@ -467,6 +478,7 @@ class VacancyHistory:
                 search_query=str(row[6]),
                 match_score=int(row[7]) if row[7] is not None else None,
                 manual_reason=(ManualResponseReason(str(row[8])) if row[8] else None),
+                post_response_modal_text=str(row[9]) if row[9] else None,
             )
             for row in rows
         ]

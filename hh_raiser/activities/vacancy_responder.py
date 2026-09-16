@@ -36,6 +36,7 @@ _EXTERNAL_TEXT = re.compile(
     re.IGNORECASE,
 )
 _AUTH_TEXT = re.compile(r"(?:войти|авторизоваться|номер телефона)", re.IGNORECASE)
+_MAX_POST_RESPONSE_MODAL_TEXT_LENGTH = 2_000
 
 
 @dataclass(frozen=True)
@@ -109,15 +110,21 @@ def respond_to_vacancy(
 
         response_button.click(timeout=10_000)
         page.wait_for_timeout(1_000)
+        post_response_modal_text = _read_post_response_modal_text(page)
         if not _is_hh_url(page.url):
             return _manual_result(
                 ManualResponseReason.EXTERNAL_SITE,
                 "После нажатия HH перенаправил на внешний сайт; заполнение оставлено владельцу.",
                 vacancy_id=vacancy_id,
                 vacancy_title=vacancy_title,
+                post_response_modal_text=post_response_modal_text,
             )
         if _existing_response_visible(page):
-            return _sent_result(vacancy_id, vacancy_title)
+            return _sent_result(
+                vacancy_id,
+                vacancy_title,
+                post_response_modal_text=post_response_modal_text,
+            )
 
         manual = _read_manual_requirement(page)
         if manual is not None:
@@ -127,14 +134,20 @@ def respond_to_vacancy(
                 detail,
                 vacancy_id=vacancy_id,
                 vacancy_title=vacancy_title,
+                post_response_modal_text=post_response_modal_text,
             )
 
         submit = page.locator(RESPONSE_SUBMIT_BUTTON).first
         if _visible(submit) and submit.is_enabled():
             submit.click(timeout=10_000)
             page.wait_for_timeout(1_000)
+            post_response_modal_text = post_response_modal_text or _read_post_response_modal_text(page)
             if _existing_response_visible(page):
-                return _sent_result(vacancy_id, vacancy_title)
+                return _sent_result(
+                    vacancy_id,
+                    vacancy_title,
+                    post_response_modal_text=post_response_modal_text,
+                )
             manual = _read_manual_requirement(page)
             if manual is not None:
                 reason, detail = manual
@@ -143,6 +156,7 @@ def respond_to_vacancy(
                     detail,
                     vacancy_id=vacancy_id,
                     vacancy_title=vacancy_title,
+                    post_response_modal_text=post_response_modal_text,
                 )
 
         return _result(
@@ -151,6 +165,7 @@ def respond_to_vacancy(
             "распознанную форму. Повторный отклик автоматически не выполняется.",
             vacancy_id=vacancy_id,
             vacancy_title=vacancy_title,
+            post_response_modal_text=post_response_modal_text,
         )
     except PlaywrightError as error:
         if is_closed_playwright_error(error):
@@ -265,6 +280,20 @@ def _existing_response_visible(page: Page) -> bool:
     return _any_visible(page.locator(RESPONSE_SUCCESS)) or _text_visible(page, _SUCCESS_TEXT)
 
 
+def _read_post_response_modal_text(page: Page) -> str | None:
+    """Read only the visible post-click dialog text for the owner's response journal."""
+    try:
+        for dialog in page.get_by_role("dialog").all()[:5]:
+            if not _visible(dialog):
+                continue
+            text = " ".join(dialog.inner_text(timeout=0).split())
+            if text:
+                return text[:_MAX_POST_RESPONSE_MODAL_TEXT_LENGTH]
+    except (PlaywrightError, TypeError):
+        return None
+    return None
+
+
 def _text_visible(page: Page, pattern: re.Pattern[str]) -> bool:
     return _any_visible(page.get_by_text(pattern).all())
 
@@ -292,7 +321,12 @@ def _is_hh_url(url: str) -> bool:
     return host == _HH_HOST or host.endswith(f".{_HH_HOST}")
 
 
-def _sent_result(vacancy_id: str, vacancy_title: str) -> ActivityResult:
+def _sent_result(
+    vacancy_id: str,
+    vacancy_title: str,
+    *,
+    post_response_modal_text: str | None = None,
+) -> ActivityResult:
     LOGGER.info(
         "Отклик на вакансию «%s» успешно отправлен.",
         vacancy_title,
@@ -308,6 +342,7 @@ def _sent_result(vacancy_id: str, vacancy_title: str) -> ActivityResult:
         "HH показал подтверждение успешного отклика.",
         vacancy_id=vacancy_id,
         vacancy_title=vacancy_title,
+        post_response_modal_text=post_response_modal_text,
     )
 
 
@@ -317,6 +352,7 @@ def _manual_result(
     *,
     vacancy_id: str,
     vacancy_title: str,
+    post_response_modal_text: str | None = None,
 ) -> ActivityResult:
     LOGGER.info(
         "Отклик на вакансию «%s» требует участия кандидата: %s",
@@ -336,6 +372,7 @@ def _manual_result(
         vacancy_id=vacancy_id,
         vacancy_title=vacancy_title,
         manual_reason=reason,
+        post_response_modal_text=post_response_modal_text,
     )
 
 
@@ -346,6 +383,7 @@ def _result(
     vacancy_title: str,
     vacancy_id: str = "",
     manual_reason: ManualResponseReason | None = None,
+    post_response_modal_text: str | None = None,
 ) -> ActivityResult:
     activity_status = {
         VacancyResponseStatus.SENT: ActivityStatus.SUCCESS,
@@ -364,5 +402,6 @@ def _result(
             "vacancy_title": vacancy_title,
             "response_status": response_status.value,
             "manual_reason": manual_reason.value if manual_reason else None,
+            "post_response_modal_text": post_response_modal_text,
         },
     )
