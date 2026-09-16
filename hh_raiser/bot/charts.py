@@ -43,10 +43,10 @@ class ChartReadError(RuntimeError):
 
 
 def render_statistics_dashboard(state_dir: Path, *, instance_name: str) -> bytes:
-    """Render a non-sensitive PNG dashboard directly from the instance SQLite history."""
+    """Построить обезличенный PNG-дашборд непосредственно из SQLite-истории экземпляра."""
 
-    # Matplotlib and NumPy are intentionally imported on demand: the always-on bot
-    # should not pay their startup time and memory cost until the owner requests a chart.
+    # Matplotlib и NumPy загружаются только по запросу: постоянно работающему боту
+    # не нужно тратить время запуска и память, пока владелец не попросил график.
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 

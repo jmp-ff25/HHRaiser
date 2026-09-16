@@ -23,7 +23,7 @@ from hh_raiser.scheduling import decide_page_state
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Locator, Page, Response
 
-    from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
+    from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -103,7 +103,7 @@ def login_if_needed(
     page: Page,
     args: argparse.Namespace,
     *,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> None:
     from hh_raiser.infrastructure.browser.captcha_guard import resolve_captcha

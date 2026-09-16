@@ -11,7 +11,7 @@ from hh_raiser.browser import (
     wait_for_profile_content,
     wait_for_profile_raise_state,
 )
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import (
     dismiss_hh_pro_modal,
     hh_pro_modal_visible,
@@ -35,7 +35,7 @@ def run_cycle(
     capture: NetworkCapture,
     minimum_cooldown: timedelta,
     page_refresh_seconds: int,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> datetime | None:
     page.goto(PROFILE_URL, wait_until="domcontentloaded")

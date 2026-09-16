@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     PROFILE_EDUCATION,
@@ -26,7 +26,7 @@ from playwright.sync_api import Error as PlaywrightError
 def review_resume(
     page: Page,
     *,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> ActivityResult:
     try:

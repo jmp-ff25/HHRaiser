@@ -12,12 +12,10 @@ class ActivityOrchestratorTests(unittest.TestCase):
         page = Mock()
         policy = Mock()
         traversal = Mock()
-        rotation = Mock()
         history = Mock()
         orchestrator = ActivityOrchestrator(
             policy=policy,
             report_path=Path("activity.jsonl"),
-            rotation=rotation,
             history=history,
             resume_title="Backend developer",
             traversal=traversal,

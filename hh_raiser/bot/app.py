@@ -56,11 +56,11 @@ async def edit_message_if_changed(
     text: str,
     keyboard: InlineKeyboardMarkup,
 ) -> None:
-    """Update a text view or open a new one when the button belongs to media."""
+    """Обновить текстовый экран либо открыть новый после нажатия на медиа-кнопку."""
 
     if message.text is None:
-        # Photos and documents have no editable text body. Their inline buttons
-        # remain useful, but navigation must continue in a regular text message.
+        # У фото и документов нет редактируемого текстового тела. Их кнопки остаются
+        # полезными, но навигацию нужно продолжать отдельным обычным сообщением.
         with suppress(TelegramBadRequest):
             await message.edit_reply_markup(reply_markup=None)
         await message.answer(text, reply_markup=keyboard)
@@ -74,7 +74,7 @@ async def edit_message_if_changed(
 
 
 class TelegramControlBot:
-    """Authorized Telegram UI for fixed HHRaiser systemd instances."""
+    """Авторизованный Telegram-интерфейс для фиксированных systemd-экземпляров HHRaiser."""
 
     def __init__(
         self,
@@ -580,7 +580,7 @@ class TelegramControlBot:
         return False
 
     async def send_periodic_summaries(self, bot: Bot) -> None:
-        """Send owner-only summaries at the configured interval until cancelled."""
+        """Отправлять сводки владельцам с настроенным интервалом до остановки бота."""
 
         interval_seconds = self.settings.summary_interval_minutes * 60
         if interval_seconds <= 0:
@@ -608,7 +608,7 @@ class TelegramControlBot:
                     )
 
     async def relay_owner_interventions(self, bot: Bot) -> None:
-        """Deliver new browser challenges and bind replies to one-time message IDs."""
+        """Передавать новые проверки браузера и связывать ответы с одноразовыми сообщениями."""
 
         while True:
             for instance_key, instance in self.settings.instances.items():
@@ -886,7 +886,7 @@ class TelegramControlBot:
 
 
 async def run_telegram_bot(settings: BotSettings) -> None:
-    """Start one long-polling process and discard stale control commands."""
+    """Запустить long polling и отбросить устаревшие команды управления."""
 
     controller = TelegramControlBot(settings)
     dispatcher = Dispatcher()

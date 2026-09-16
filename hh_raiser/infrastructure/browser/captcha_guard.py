@@ -5,6 +5,7 @@ import os
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
@@ -22,16 +23,28 @@ _RESULT_WAIT_MILLISECONDS = 8_000
 _FORM_WAIT_MILLISECONDS = 10_000
 
 
+class CaptchaResolver(Protocol):
+    """Общий контракт для Telegram- и локального режима ручной CAPTCHA."""
+
+    def resolve_if_present(
+        self,
+        page: Page,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> bool:
+        """Обработать CAPTCHA, если она показана на текущей странице."""
+
+
 class OwnerInterventionCancelled(RuntimeError):
-    """Raised when HHRaiser is stopped while waiting for its owner."""
+    """Возникает, когда HHRaiser остановлен во время ожидания владельца."""
 
 
 class ManualCaptchaRequired(RuntimeError):
-    """Raised when a headless local run cannot be completed without the owner."""
+    """Возникает, когда headless-запуск нельзя завершить без участия владельца."""
 
 
 class ManualCaptchaGuard:
-    """Pause a visible local browser until the owner completes HH's CAPTCHA."""
+    """Приостановить видимый браузер, пока владелец не решит CAPTCHA HH."""
 
     def __init__(self, *, headless: bool) -> None:
         self.headless = headless
@@ -68,7 +81,7 @@ class ManualCaptchaGuard:
 
 
 class CaptchaGuard:
-    """Pause Playwright and relay HH text CAPTCHA challenges through a local mailbox."""
+    """Приостановить Playwright и передать текстовую CAPTCHA HH через локальный ящик."""
 
     def __init__(self, store: OwnerInterventionStore) -> None:
         self.store = store
@@ -80,7 +93,7 @@ class CaptchaGuard:
         *,
         stop_requested: Callable[[], bool] | None = None,
     ) -> bool:
-        """Resolve every currently displayed HH text CAPTCHA with an owner's answer."""
+        """Решить каждую показанную текстовую CAPTCHA HH ответом владельца."""
 
         if not self.is_present(page):
             return False
@@ -140,7 +153,7 @@ class CaptchaGuard:
 
     @staticmethod
     def is_present(page: Page) -> bool:
-        """Recognize HH's own CAPTCHA before vacancy-title extraction."""
+        """Распознать CAPTCHA HH до извлечения названия вакансии."""
 
         if urlsplit(page.url).path == _CAPTCHA_PATH:
             return True
@@ -186,12 +199,12 @@ class CaptchaGuard:
 
 
 def resolve_captcha(
-    guard: CaptchaGuard | ManualCaptchaGuard | None,
+    guard: CaptchaResolver | None,
     page: Page,
     *,
     stop_requested: Callable[[], bool] | None = None,
 ) -> bool:
-    """Run the configured CAPTCHA guard while preserving optional local operation."""
+    """Запустить настроенный обработчик CAPTCHA, сохранив необязательный режим."""
 
     if guard is None:
         return False
@@ -200,11 +213,11 @@ def resolve_captcha(
     except PlaywrightError as error:
         if is_closed_playwright_error(error):
             raise
-        raise RuntimeError("Не удалось обработать CAPTCHA HH через Telegram.") from error
+        raise RuntimeError("Не удалось обработать CAPTCHA HH.") from error
 
 
 def captcha_controls(page: Page) -> tuple[Locator, Locator, Locator]:
-    """Return semantic HH CAPTCHA controls with stable data-qa fallbacks."""
+    """Вернуть семантические элементы CAPTCHA HH со стабильными data-qa fallback-ами."""
 
     image = page.get_by_role("img", name="captcha", exact=True).or_(
         page.locator('[data-qa="account-captcha-picture"]')

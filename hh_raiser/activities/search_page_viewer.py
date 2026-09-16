@@ -8,7 +8,7 @@ from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.search_url import build_search_url
@@ -42,7 +42,7 @@ def view_search_page(
     *,
     query: str,
     search_page: int,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> tuple[ActivityResult, list[str], int]:
     try:

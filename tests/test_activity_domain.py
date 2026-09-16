@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import random
 import unittest
 
-from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.infrastructure.browser.page_state_reader import (
     canonical_vacancy_url,
@@ -52,92 +50,3 @@ class SafeUrlTests(unittest.TestCase):
             canonical_vacancy_url("/vacancy/12345678?from=search"),
             "https://hh.ru/vacancy/12345678",
         )
-
-
-class VacancyRotationTests(unittest.TestCase):
-    def test_allocates_cycle_slots_fairly(self) -> None:
-        rotation = VacancyRotation(
-            queries=("first", "second", "third", "fourth"),
-            randomizer=random.Random(2),
-        )
-
-        allocation = rotation.allocate_slots(10)
-
-        self.assertEqual(sum(allocation.values()), 10)
-        self.assertEqual(sorted(allocation.values()), [2, 2, 3, 3])
-
-    def test_refreshes_each_query_first_page_once_per_cycle(self) -> None:
-        rotation = VacancyRotation(
-            queries=("first", "second"),
-            randomizer=random.Random(4),
-        )
-        rotation.restore_coverage(
-            {
-                "first": (4, frozenset({0, 1})),
-                "second": (3, frozenset({0})),
-            }
-        )
-        rotation.begin_cycle()
-
-        searches = [rotation.next_search(), rotation.next_search()]
-
-        self.assertEqual(
-            {search for search in searches if search is not None},
-            {
-                ("first", 0),
-                ("second", 0),
-            },
-        )
-
-    def test_restored_coverage_skips_already_scanned_deep_pages(self) -> None:
-        rotation = VacancyRotation(queries=("python",), randomizer=random.Random(3))
-        rotation.restore_coverage({"python": (4, frozenset({0, 2}))})
-
-        search = rotation.next_search()
-
-        self.assertIsNotNone(search)
-        assert search is not None
-        self.assertEqual(search[0], "python")
-        self.assertIn(search[1], {1, 3})
-
-    def test_starts_each_unknown_query_from_first_page(self) -> None:
-        rotation = VacancyRotation(
-            queries=("first", "second"),
-            randomizer=random.Random(7),
-        )
-
-        first = rotation.next_search()
-        self.assertIsNotNone(first)
-        assert first is not None
-        rotation.observe_search(*first, page_count=3)
-
-        second = rotation.next_search()
-        self.assertIsNotNone(second)
-        assert second is not None
-        self.assertNotEqual(first[0], second[0])
-        self.assertEqual(second[1], 0)
-
-    def test_randomizes_pages_without_repeating_within_pass(self) -> None:
-        rotation = VacancyRotation(queries=("python",), randomizer=random.Random(3))
-        rotation.observe_search("python", 0, page_count=4)
-
-        pages: list[int] = []
-        for _ in range(3):
-            search = rotation.next_search()
-            self.assertIsNotNone(search)
-            assert search is not None
-            query, page = search
-            pages.append(page)
-            rotation.observe_search(query, page, page_count=4)
-
-        self.assertEqual(set(pages), {1, 2, 3})
-        self.assertIsNone(rotation.next_search())
-
-    def test_reset_coverage_starts_a_new_page_pass(self) -> None:
-        rotation = VacancyRotation(queries=("python",), randomizer=random.Random(1))
-        rotation.observe_search("python", 0, page_count=1)
-        self.assertIsNone(rotation.next_search())
-
-        rotation.reset_coverage()
-
-        self.assertEqual(rotation.next_search(), ("python", 0))

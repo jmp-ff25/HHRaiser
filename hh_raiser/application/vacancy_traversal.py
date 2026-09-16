@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class SearchRequest:
-    """One search page selected by the cyclic traversal."""
+    """Одна страница выдачи, выбранная циклическим обходом."""
 
     query: str
     page: int
@@ -16,7 +16,7 @@ class SearchRequest:
 
 @dataclass(frozen=True)
 class VacancyGroup:
-    """A paced portion of one shuffled HH search-result page."""
+    """Одна группа вакансий из перемешанной страницы выдачи HH."""
 
     query: str
     page: int
@@ -29,7 +29,7 @@ class VacancyGroup:
 
 @dataclass
 class VacancyTraversal:
-    """Traverse configured queries cyclically and pages in a shuffled order."""
+    """Циклически обойти запросы и страницы в перемешанном порядке."""
 
     queries: tuple[str, ...]
     randomizer: random.Random = field(default_factory=random.Random)
@@ -74,7 +74,7 @@ class VacancyTraversal:
         urls: list[str],
         group_size: int,
     ) -> int:
-        """Remember pagination and split shuffled unique URLs into balanced groups."""
+        """Запомнить пагинацию и разделить перемешанные URL на равные группы."""
 
         if request.query != self.current_query:
             raise ValueError("search result does not belong to the current query")

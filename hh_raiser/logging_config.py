@@ -104,7 +104,7 @@ class RichEventHandler(logging.Handler):
             )
             output.append(message, style=self._message_style(record))
             self._console.print(output, soft_wrap=True)
-        except Exception:  # noqa: BLE001 - a logging handler must never crash the application
+        except Exception:  # noqa: BLE001 — обработчик логов не должен останавливать приложение
             self.handleError(record)
 
     def _prefix_style(self, record: logging.LogRecord) -> str | None:

@@ -16,7 +16,6 @@ from tempfile import TemporaryDirectory
 
 from hh_raiser.activities.resume_index_refresher import refresh_resume_index
 from hh_raiser.application.orchestrator import ActivityOrchestrator
-from hh_raiser.application.vacancy_rotation import VacancyRotation
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.browser import (
     NetworkCapture,
@@ -33,6 +32,7 @@ from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
+    CaptchaResolver,
     ManualCaptchaGuard,
     ManualCaptchaRequired,
     OwnerInterventionCancelled,
@@ -49,7 +49,7 @@ from hh_raiser.service import run_cycle
 
 
 class BrowserClosedDuringWait(RuntimeError):
-    pass
+    """Сигнал основному циклу: браузер закрыт и разрешён явный перезапуск."""
 
 
 @contextmanager
@@ -89,6 +89,7 @@ def resume_wait_delay(
 
 
 def log_activity_results(results: list[ActivityResult]) -> None:
+    """Вывести компактные сводки вместо одинаковой строки для каждой вакансии."""
     search_results = [result for result in results if result.action == ActivityKind.REVIEW_SEARCH]
     vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
     response_results = [
@@ -204,6 +205,69 @@ def bounded_non_negative_float(value: str, *, maximum: float) -> float:
     if not 0 <= parsed <= maximum:
         raise argparse.ArgumentTypeError(f"Значение должно быть от 0 до {maximum:g}")
     return parsed
+
+
+def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
+    """Собрать единую политику из уже проверенных CLI- и INI-настроек."""
+
+    return ActivityPolicy(
+        vacancies_per_cycle=args.vacancies_per_cycle,
+        search_pages_per_cycle=args.search_pages_per_cycle,
+        unique_vacancy_limit=args.unique_vacancy_limit,
+        revisit_after_days=args.revisit_after_days,
+        reset_on_exhaustion=args.reset_on_exhaustion,
+        search_scrolls=args.search_scrolls,
+        vacancy_scrolls=args.vacancy_scrolls,
+        scroll_pause_seconds=args.scroll_pause_seconds,
+        vacancy_view_seconds=args.vacancy_view_seconds,
+        vacancy_matching=args.vacancy_matching,
+        match_threshold=args.match_threshold,
+        auto_respond=args.auto_respond,
+        daily_response_limit=args.daily_response_limit,
+        search_filters=args.search_filters,
+    )
+
+
+def build_activity_orchestrator(
+    args: argparse.Namespace,
+    policy: ActivityPolicy,
+    captcha_guard: CaptchaResolver,
+    stop_requested: Callable[[], bool],
+) -> ActivityOrchestrator:
+    """Создать сохраняющий состояние обход вакансий для одного Chromium-профиля."""
+
+    report_path = args.profile_dir.parent / "activity-events.jsonl"
+    return ActivityOrchestrator(
+        policy=policy,
+        report_path=report_path,
+        history=args.vacancy_history,
+        resume_title=args.resume_title,
+        response_report_path=(
+            args.profile_dir.parent / "vacancy-responses.xlsx" if args.auto_respond else None
+        ),
+        captcha_guard=captcha_guard,
+        stop_requested=stop_requested,
+        traversal=VacancyTraversal(queries=args.search_queries),
+    )
+
+
+def next_wait_seconds(
+    resume_wait_seconds: int,
+    next_activity_at: datetime | None,
+    next_resume_refresh_at: datetime | None,
+) -> int:
+    """Выбрать ближайший момент между поднятием, активностью и обновлением резюме."""
+
+    wait_seconds = resume_wait_seconds
+    for scheduled_at in (next_activity_at, next_resume_refresh_at):
+        if scheduled_at is None:
+            continue
+        remaining_seconds = max(
+            0,
+            math.ceil((scheduled_at - datetime.now(MOSCOW)).total_seconds()),
+        )
+        wait_seconds = min(wait_seconds, remaining_seconds)
+    return wait_seconds
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -370,6 +434,8 @@ def run_browser_context(
     *,
     stop_requested: Callable[[], bool] | None = None,
 ) -> None:
+    """Запустить один браузерный сеанс и координировать независимые расписания."""
+
     should_stop = stop_requested or (lambda: False)
     LOGGER.info("Запускаю Chromium...", extra=event_data(LogEvent.BROWSER))
     context = playwright.chromium.launch_persistent_context(
@@ -400,39 +466,9 @@ def run_browser_context(
             stop_requested=should_stop,
         )
         minimum_cooldown = timedelta(hours=args.minimum_cooldown_hours)
-        activity_policy = ActivityPolicy(
-            vacancies_per_cycle=args.vacancies_per_cycle,
-            search_pages_per_cycle=args.search_pages_per_cycle,
-            unique_vacancy_limit=args.unique_vacancy_limit,
-            revisit_after_days=args.revisit_after_days,
-            reset_on_exhaustion=args.reset_on_exhaustion,
-            search_scrolls=args.search_scrolls,
-            vacancy_scrolls=args.vacancy_scrolls,
-            scroll_pause_seconds=args.scroll_pause_seconds,
-            vacancy_view_seconds=args.vacancy_view_seconds,
-            vacancy_matching=args.vacancy_matching,
-            match_threshold=args.match_threshold,
-            auto_respond=args.auto_respond,
-            daily_response_limit=args.daily_response_limit,
-            search_filters=args.search_filters,
-        )
+        activity_policy = build_activity_policy(args)
         report_path = args.profile_dir.parent / "activity-events.jsonl"
-        vacancy_rotation = VacancyRotation(queries=args.search_queries)
-        vacancy_rotation.restore_coverage(args.vacancy_history.search_coverage(args.search_queries))
-        vacancy_traversal = VacancyTraversal(queries=args.search_queries)
-        orchestrator = ActivityOrchestrator(
-            policy=activity_policy,
-            report_path=report_path,
-            rotation=vacancy_rotation,
-            history=args.vacancy_history,
-            resume_title=args.resume_title,
-            response_report_path=(
-                args.profile_dir.parent / "vacancy-responses.xlsx" if args.auto_respond else None
-            ),
-            captcha_guard=captcha_guard,
-            stop_requested=should_stop,
-            traversal=vacancy_traversal,
-        )
+        orchestrator = build_activity_orchestrator(args, activity_policy, captcha_guard, should_stop)
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
         resume_refresh_enabled = args.resume_index_refresh and not args.dry_run
@@ -497,19 +533,11 @@ def run_browser_context(
                 buffer_seconds=args.buffer_seconds,
                 poll_seconds=args.poll_seconds,
             )
-            wait_seconds = resume_wait_seconds
-            if next_activity_at is not None:
-                activity_wait_seconds = max(
-                    0,
-                    math.ceil((next_activity_at - datetime.now(MOSCOW)).total_seconds()),
-                )
-                wait_seconds = min(resume_wait_seconds, activity_wait_seconds)
-            if next_resume_refresh_at is not None:
-                refresh_wait_seconds = max(
-                    0,
-                    math.ceil((next_resume_refresh_at - datetime.now(MOSCOW)).total_seconds()),
-                )
-                wait_seconds = min(wait_seconds, refresh_wait_seconds)
+            wait_seconds = next_wait_seconds(
+                resume_wait_seconds,
+                next_activity_at,
+                next_resume_refresh_at,
+            )
             LOGGER.info(
                 "Следующая проверка через %s; часы сверяются каждые %s.",
                 format_wait_duration(wait_seconds),

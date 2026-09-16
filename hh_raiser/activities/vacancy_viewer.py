@@ -9,7 +9,7 @@ from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.matching import VacancyCompatibilityMatcher, VacancyDocument
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.browser.page_state_reader import canonical_vacancy_url
 from hh_raiser.infrastructure.hh.selectors import (
@@ -42,7 +42,7 @@ def view_vacancies(
     policy: ActivityPolicy,
     *,
     matcher: VacancyCompatibilityMatcher | None = None,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
     view_below_threshold: bool = False,
     display_index: int | None = None,

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_DESCRIPTION_INPUT,
@@ -103,8 +103,8 @@ def _read_marker(profile_dir: Path) -> ResumeMarkerState | None:
     try:
         payload = json.loads(_marker_path(profile_dir).read_text(encoding="utf-8"))
         if "base_trailing_periods" not in payload:
-            # Marker written by versions that compared the exact browser text.  HH may
-            # normalize line endings, so an existing legacy marker still owns one dot.
+            # Ранние версии сравнивали точный текст браузера. HH может нормализовать
+            # переводы строк, поэтому старый маркер всё ещё считается владельцем точки.
             return ResumeMarkerState(
                 target_index=int(payload["target_index"]),
                 base_trailing_periods=-1,
@@ -153,7 +153,7 @@ def refresh_resume_index(
     page: Page,
     *,
     profile_dir: Path,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> ActivityResult:
     attempted_at = datetime.now(MOSCOW)
@@ -227,8 +227,8 @@ def refresh_resume_index(
             updated_value = restored_value
             operation = "removed"
         elif trailing_period_count(current_value) > 1:
-            # Repair dots left by the old exact-hash implementation before starting
-            # a new add/remove pair.  Work through experiences in stable order.
+            # Сначала исправляем точки от старой реализации с точным хешем, затем
+            # начинаем новую пару «добавить/удалить» в стабильном порядке опыта.
             updated_value = remove_one_trailing_period(current_value)
             if updated_value is None:
                 return ActivityResult(

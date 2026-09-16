@@ -11,6 +11,7 @@ from hh_raiser.cli import (
     build_parser,
     graceful_interrupt,
     log_activity_results,
+    next_wait_seconds,
     resume_wait_delay,
 )
 from hh_raiser.domain.action import ActivityKind
@@ -40,6 +41,18 @@ class CliTests(unittest.TestCase):
         )
 
         self.assertEqual(delay, 600)
+
+    def test_next_wait_uses_nearest_scheduled_action(self) -> None:
+        now = datetime.now().astimezone()
+
+        wait_seconds = next_wait_seconds(
+            600,
+            now + timedelta(seconds=180),
+            now + timedelta(seconds=300),
+        )
+
+        self.assertGreaterEqual(wait_seconds, 179)
+        self.assertLessEqual(wait_seconds, 180)
 
     def test_profession_is_not_hardcoded_in_cli_defaults(self) -> None:
         args = build_parser().parse_args([])

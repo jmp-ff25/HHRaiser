@@ -8,12 +8,12 @@ from hh_raiser.activities.resume_review import review_resume
 from hh_raiser.activities.search_page_viewer import view_search_page
 from hh_raiser.activities.vacancy_responder import respond_to_vacancy
 from hh_raiser.activities.vacancy_viewer import view_vacancies
-from hh_raiser.application.activity_service import _record_response
+from hh_raiser.application.response_history import record_terminal_response
 from hh_raiser.application.vacancy_traversal import VacancyGroup, VacancyTraversal
 from hh_raiser.domain.matching import VacancyCompatibilityMatcher
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
+from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory, vacancy_id_from_url
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
@@ -29,10 +29,10 @@ def run_vacancy_page_group(
     history: VacancyHistory,
     resume_title: str,
     *,
-    captcha_guard: CaptchaGuard | None = None,
+    captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> list[ActivityResult]:
-    """Process one paced group while retaining the current query and page cursor."""
+    """Обработать одну группу, сохранив текущие запрос и позицию в пагинации."""
 
     results: list[ActivityResult] = []
     resume_text = traversal.resume_text
@@ -232,7 +232,7 @@ def run_vacancy_page_group(
             },
         )
         results.append(response_result)
-        _record_response(history, response_result)
+        record_terminal_response(history, response_result)
 
     return _with_resume_review(
         page,
@@ -248,7 +248,7 @@ def _load_next_nonempty_group(
     traversal: VacancyTraversal,
     results: list[ActivityResult],
     *,
-    captcha_guard: CaptchaGuard | None,
+    captcha_guard: CaptchaResolver | None,
     stop_requested: Callable[[], bool] | None,
 ) -> VacancyGroup | None:
     initial_cycle = traversal.cycle
@@ -317,7 +317,7 @@ def _with_resume_review(
     page: Page,
     results: list[ActivityResult],
     *,
-    captcha_guard: CaptchaGuard | None,
+    captcha_guard: CaptchaResolver | None,
     stop_requested: Callable[[], bool] | None,
 ) -> list[ActivityResult]:
     if captcha_guard is None and stop_requested is None:

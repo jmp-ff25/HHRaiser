@@ -52,7 +52,7 @@ def respond_to_vacancy(
     vacancy_url: str,
     vacancy_title: str,
 ) -> ActivityResult:
-    """Send only a form-free HH response and stop on every ambiguous branch."""
+    """Откликнуться только без анкеты и остановиться на любой неоднозначной ветке."""
     vacancy_id = vacancy_id_from_url(vacancy_url)
     if vacancy_id is None:
         return _result(
@@ -182,7 +182,7 @@ def _read_public_response_requirements(
     page: Page,
     vacancy_id: str,
 ) -> _PreflightSignal | None:
-    """Use the public HH API as a preflight signal, never as success confirmation."""
+    """Использовать публичный API HH лишь как предварительный сигнал, не как успех."""
     try:
         response = page.request.get(
             f"https://api.hh.ru/vacancies/{vacancy_id}",
@@ -281,7 +281,7 @@ def _existing_response_visible(page: Page) -> bool:
 
 
 def _read_post_response_modal_text(page: Page) -> str | None:
-    """Read only the visible post-click dialog text for the owner's response journal."""
+    """Прочитать текст видимого окна после клика для журнала откликов владельца."""
     try:
         for dialog in page.get_by_role("dialog").all()[:5]:
             if not _visible(dialog):
