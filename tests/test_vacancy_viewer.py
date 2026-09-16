@@ -128,6 +128,38 @@ class VacancyViewerTests(unittest.TestCase):
         self.assertEqual(outcomes[0].result.metadata["scrolls_completed"], 0)
         self.assertEqual(page.body.press_calls, [])
         self.assertEqual(page.wait_calls, [])
+    def test_rejected_vacancy_can_be_viewed_without_becoming_eligible(self) -> None:
+        page = FakeVacancyPage()
+        matcher = Mock()
+        matcher.evaluate.return_value = MatchAssessment(
+            score=12,
+            accepted=False,
+            applied=True,
+            title_similarity=0.0,
+            bm25f_relevance=0.0,
+            skills_coverage=0.0,
+            lexical_similarity=0.0,
+        )
+
+        with patch("hh_raiser.activities.vacancy_viewer.dismiss_hh_pro_modal"):
+            outcomes = list(
+                view_vacancies(
+                    page,
+                    ["https://hh.ru/vacancy/123"],
+                    ActivityPolicy(
+                        vacancy_scrolls=2,
+                        scroll_pause_seconds=0,
+                        vacancy_view_seconds=0,
+                    ),
+                    matcher=matcher,
+                    view_below_threshold=True,
+                )
+            )
+
+        self.assertEqual(outcomes[0].result.status, ActivityStatus.SUCCESS)
+        self.assertFalse(outcomes[0].result.metadata["match_accepted"])
+        self.assertEqual(outcomes[0].result.metadata["scrolls_completed"], 2)
+        self.assertEqual(page.body.press_calls, ["PageDown", "PageDown"])
 
     def test_title_is_safe_for_single_line_log(self) -> None:
         self.assertEqual(

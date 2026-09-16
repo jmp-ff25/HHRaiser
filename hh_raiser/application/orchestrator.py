@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hh_raiser.application.activity_service import run_permitted_activities
+from hh_raiser.application.page_group_service import run_vacancy_page_group
 from hh_raiser.application.vacancy_rotation import VacancyRotation
+from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult
 from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard
@@ -29,17 +31,31 @@ class ActivityOrchestrator:
     response_report_path: Path | None = None
     captcha_guard: CaptchaGuard | None = None
     stop_requested: Callable[[], bool] | None = None
+    traversal: VacancyTraversal | None = None
 
     def run(self, page: Page) -> list[ActivityResult]:
-        results = run_permitted_activities(
-            page,
-            self.policy,
-            self.rotation,
-            self.history,
-            self.resume_title,
-            captcha_guard=self.captcha_guard,
-            stop_requested=self.stop_requested,
-        )
+        common_options = {
+            "captcha_guard": self.captcha_guard,
+            "stop_requested": self.stop_requested,
+        }
+        if self.traversal is not None:
+            results = run_vacancy_page_group(
+                page,
+                self.policy,
+                self.traversal,
+                self.history,
+                self.resume_title,
+                **common_options,
+            )
+        else:
+            results = run_permitted_activities(
+                page,
+                self.policy,
+                self.rotation,
+                self.history,
+                self.resume_title,
+                **common_options,
+            )
         append_activity_results(self.report_path, results)
         if self.response_report_path is not None:
             try:

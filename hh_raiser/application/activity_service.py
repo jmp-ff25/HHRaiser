@@ -244,9 +244,16 @@ def run_permitted_activities(
 def _record_response(history: VacancyHistory, result: ActivityResult) -> None:
     metadata = result.metadata
     vacancy_id = str(metadata.get("vacancy_id") or "")
+    response_status = VacancyResponseStatus(str(metadata["response_status"]))
+    if response_status not in {
+        VacancyResponseStatus.SENT,
+        VacancyResponseStatus.MANUAL_REQUIRED,
+        VacancyResponseStatus.ALREADY_SENT,
+        VacancyResponseStatus.UNKNOWN,
+    }:
+        return
     if not vacancy_id:
         return
-    response_status = VacancyResponseStatus(str(metadata["response_status"]))
     manual_reason_value = metadata.get("manual_reason")
     manual_reason = ManualResponseReason(str(manual_reason_value)) if manual_reason_value else None
     match_score_value = metadata.get("match_score")

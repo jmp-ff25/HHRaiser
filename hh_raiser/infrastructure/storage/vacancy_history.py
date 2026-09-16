@@ -17,6 +17,14 @@ from hh_raiser.domain.vacancy_response import (
 from hh_raiser.models import MOSCOW
 
 VACANCY_ID_PATTERN = re.compile(r"/vacancy/(\d+)$")
+TERMINAL_RESPONSE_STATUSES = frozenset(
+    {
+        VacancyResponseStatus.SENT,
+        VacancyResponseStatus.MANUAL_REQUIRED,
+        VacancyResponseStatus.ALREADY_SENT,
+        VacancyResponseStatus.UNKNOWN,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -379,15 +387,50 @@ class VacancyHistory:
             ).fetchone()
         return row is not None
 
+
+    def response_status(self, url: str) -> VacancyResponseStatus | None:
+        """Return only an outcome that prevents another automatic response attempt."""
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return None
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT status FROM vacancy_responses WHERE vacancy_id = ?",
+                (vacancy_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        status = VacancyResponseStatus(str(row[0]))
+        return status if status in TERMINAL_RESPONSE_STATUSES else None
+
     def record_response(self, record: VacancyResponseRecord) -> bool:
         """Persist the first terminal response outcome and reject automatic retries."""
         with closing(self._connect()) as connection, connection:
+            observed_at = record.occurred_at.isoformat()
+            connection.execute(
+                """
+                INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vacancy_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+                """,
+                (record.vacancy_id, observed_at, observed_at),
+            )
             cursor = connection.execute(
                 """
-                INSERT OR IGNORE INTO vacancy_responses(
+                INSERT INTO vacancy_responses(
                     vacancy_id, occurred_at, status, detail, vacancy_title,
                     company_name, search_query, match_score, manual_reason
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(vacancy_id) DO UPDATE SET
+                    occurred_at = excluded.occurred_at,
+                    status = excluded.status,
+                    detail = excluded.detail,
+                    vacancy_title = excluded.vacancy_title,
+                    company_name = excluded.company_name,
+                    search_query = excluded.search_query,
+                    match_score = excluded.match_score,
+                    manual_reason = excluded.manual_reason
+                WHERE vacancy_responses.status IN ('error', 'unavailable')
                 """,
                 (
                     record.vacancy_id,

@@ -10,6 +10,7 @@ from pathlib import Path
 from hh_raiser.domain.search_filters import ExperienceLevel, SearchField, SearchFilters
 
 DEFAULT_CONFIG_PATH = Path("hh-config.ini")
+DEFAULT_VACANCIES_PER_GROUP = 5
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
 DEFAULT_UNIQUE_VACANCY_LIMIT = 1_000
 DEFAULT_REVISIT_AFTER_DAYS = 14
@@ -24,6 +25,7 @@ DEFAULT_DAILY_RESPONSE_LIMIT = 0
 class FileConfig:
     resume_title: str | None = None
     search_queries: tuple[str, ...] = ()
+    vacancies_per_group: int | None = None
     search_pages_per_cycle: int | None = None
     unique_vacancy_limit: int | None = None
     revisit_after_days: int | None = None
@@ -39,6 +41,7 @@ class FileConfig:
 class RuntimeSettings:
     resume_title: str
     search_queries: tuple[str, ...]
+    vacancies_per_group: int
     search_pages_per_cycle: int
     unique_vacancy_limit: int
     revisit_after_days: int
@@ -87,6 +90,7 @@ def read_file_config(path: Path) -> FileConfig:
     try:
         resume_title = parser.get("resume", "title", fallback="").strip() or None
         search_queries = parse_search_queries(parser.get("activity", "search_queries", fallback=""))
+        vacancies_per_group = parser.getint("activity", "vacancies_per_group", fallback=None)
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
         unique_vacancy_limit = parser.getint("activity", "unique_vacancy_limit", fallback=None)
         revisit_after_days = parser.getint("activity", "revisit_after_days", fallback=None)
@@ -116,6 +120,7 @@ def read_file_config(path: Path) -> FileConfig:
     return FileConfig(
         resume_title=resume_title,
         search_queries=search_queries,
+        vacancies_per_group=vacancies_per_group,
         search_pages_per_cycle=search_pages_per_cycle,
         unique_vacancy_limit=unique_vacancy_limit,
         revisit_after_days=revisit_after_days,
@@ -139,6 +144,12 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         os.environ.get("HH_SEARCH_QUERIES", ""), separator="|"
     )
     search_queries = cli_queries or environment_queries or file_config.search_queries
+    vacancies_per_group = (
+        getattr(args, "vacancies_per_cycle", None)
+        if getattr(args, "vacancies_per_cycle", None) is not None
+        else file_config.vacancies_per_group
+    )
+
     search_pages_per_cycle = (
         getattr(args, "search_pages_per_cycle", None)
         if getattr(args, "search_pages_per_cycle", None) is not None
@@ -204,6 +215,12 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
     return RuntimeSettings(
         resume_title=resume_title,
         search_queries=search_queries,
+        vacancies_per_group=_validate_range(
+            "activity.vacancies_per_group",
+            vacancies_per_group or DEFAULT_VACANCIES_PER_GROUP,
+            minimum=1,
+            maximum=25,
+        ),
         search_pages_per_cycle=_validate_range(
             "activity.search_pages_per_cycle",
             resolved_search_pages,

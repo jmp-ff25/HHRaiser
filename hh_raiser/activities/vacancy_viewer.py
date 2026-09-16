@@ -44,9 +44,14 @@ def view_vacancies(
     matcher: VacancyCompatibilityMatcher | None = None,
     captcha_guard: CaptchaGuard | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    view_below_threshold: bool = False,
+    display_index: int | None = None,
+    display_total: int | None = None,
 ) -> Iterator[VacancyViewOutcome]:
     yielded = False
     for index, url in enumerate(vacancy_urls, start=1):
+        shown_index = display_index if display_index is not None else index
+        shown_total = display_total if display_total is not None else len(vacancy_urls)
         canonical = canonical_vacancy_url(url)
         if canonical is None:
             continue
@@ -75,8 +80,8 @@ def view_vacancies(
                 company_name = normalize_vacancy_title(company.first.inner_text())
             LOGGER.info(
                 "Открыта вакансия %s из %s: «%s», компания «%s».",
-                index,
-                len(vacancy_urls),
+                shown_index,
+                shown_total,
                 vacancy_title,
                 company_name,
                 extra=event_data(
@@ -101,8 +106,8 @@ def view_vacancies(
                 if assessment.applied:
                     LOGGER.info(
                         "Соответствие вакансии %s из %s «%s»: %s%% (порог %s%%).",
-                        index,
-                        len(vacancy_urls),
+                        shown_index,
+                        shown_total,
                         vacancy_title,
                         assessment.score,
                         policy.match_threshold,
@@ -114,7 +119,7 @@ def view_vacancies(
                             vacancy_url=canonical,
                         ),
                     )
-                    if not assessment.accepted:
+                    if not assessment.accepted and not view_below_threshold:
                         yielded = True
                         yield VacancyViewOutcome(
                             url=canonical,
@@ -165,8 +170,8 @@ def view_vacancies(
             if description_visible:
                 LOGGER.info(
                     "Просматриваю вакансию %s из %s: «%s», компания «%s».",
-                    index,
-                    len(vacancy_urls),
+                    shown_index,
+                    shown_total,
                     vacancy_title,
                     company_name,
                     extra=event_data(
@@ -182,6 +187,20 @@ def view_vacancies(
                     scrolls_completed += 1
                     page.wait_for_timeout(round(policy.scroll_pause_seconds * 1_000))
             page.wait_for_timeout(round(policy.vacancy_view_seconds * 1_000))
+            LOGGER.info(
+                "Прокрутка вакансии %s из %s «%s»: %s, шагов — %s.",
+                shown_index,
+                shown_total,
+                vacancy_title,
+                "да" if scrolls_completed else "нет",
+                scrolls_completed,
+                extra=event_data(
+                    LogEvent.VACANCY_VIEW,
+                    vacancy_title=vacancy_title,
+                    vacancy_url=canonical,
+                    scrolls_completed=scrolls_completed,
+                ),
+            )
             yielded = True
             yield VacancyViewOutcome(
                 url=canonical,

@@ -56,7 +56,15 @@ async def edit_message_if_changed(
     text: str,
     keyboard: InlineKeyboardMarkup,
 ) -> None:
-    """Ignore Telegram's harmless response when an inline view has not changed."""
+    """Update a text view or open a new one when the button belongs to media."""
+
+    if message.text is None:
+        # Photos and documents have no editable text body. Their inline buttons
+        # remain useful, but navigation must continue in a regular text message.
+        with suppress(TelegramBadRequest):
+            await message.edit_reply_markup(reply_markup=None)
+        await message.answer(text, reply_markup=keyboard)
+        return
 
     try:
         await message.edit_text(text, reply_markup=keyboard)

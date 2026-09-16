@@ -17,6 +17,7 @@ from tempfile import TemporaryDirectory
 from hh_raiser.activities.resume_index_refresher import refresh_resume_index
 from hh_raiser.application.orchestrator import ActivityOrchestrator
 from hh_raiser.application.vacancy_rotation import VacancyRotation
+from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.browser import (
     NetworkCapture,
     close_context_quietly,
@@ -254,9 +255,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Интервал смены версии резюме (по умолчанию 1800 секунд).",
     )
     parser.add_argument(
+        "--vacancies-per-group",
         "--vacancies-per-cycle",
-        type=lambda value: bounded_non_negative_int(value, maximum=25),
-        default=10,
+        dest="vacancies_per_cycle",
+        type=lambda value: bounded_positive_int(value, maximum=25),
+        default=None,
+        help="Желаемый максимальный размер одной группы вакансий; по умолчанию 5.",
     )
     parser.add_argument(
         "--search-pages-per-cycle",
@@ -392,6 +396,7 @@ def run_browser_context(
         report_path = args.profile_dir.parent / "activity-events.jsonl"
         vacancy_rotation = VacancyRotation(queries=args.search_queries)
         vacancy_rotation.restore_coverage(args.vacancy_history.search_coverage(args.search_queries))
+        vacancy_traversal = VacancyTraversal(queries=args.search_queries)
         orchestrator = ActivityOrchestrator(
             policy=activity_policy,
             report_path=report_path,
@@ -403,6 +408,7 @@ def run_browser_context(
             ),
             captcha_guard=captcha_guard,
             stop_requested=should_stop,
+            traversal=vacancy_traversal,
         )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
@@ -456,10 +462,9 @@ def run_browser_context(
             elif activity_enabled and (
                 next_activity_at is None or datetime.now(MOSCOW) >= next_activity_at
             ):
-                activity_started_at = datetime.now(MOSCOW)
                 results = orchestrator.run(page)
                 log_activity_results(results)
-                next_activity_at = activity_started_at + timedelta(
+                next_activity_at = datetime.now(MOSCOW) + timedelta(
                     seconds=args.activity_interval_seconds
                 )
             if args.once:
@@ -542,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     args.resume_title = settings.resume_title
+    args.vacancies_per_cycle = settings.vacancies_per_group
     args.search_queries = settings.search_queries
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.unique_vacancy_limit = settings.unique_vacancy_limit
