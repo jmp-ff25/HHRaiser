@@ -11,6 +11,12 @@ vars:
   RESUME_REFRESH_ARGS: --resume-index-refresh
   RESPONSE_ARGS: --auto-respond
 
+# Кэш uv хранится рядом с исходным кодом, а не в пользовательском профиле Windows.
+# Это делает установку переносимой и позволяет удалить все служебные файлы вместе
+# с каталогом проекта.
+env:
+  UV_CACHE_DIR: "{{.TASKFILE_DIR}}/.uv-cache"
+
 tasks:
   default:
     desc: Показать доступные команды
