@@ -51,18 +51,38 @@ class BrowserClosedDuringWait(RuntimeError):
 
 @contextmanager
 def graceful_interrupt() -> Iterator[threading.Event]:
-    """Turn Ctrl+C into a cooperative shutdown request."""
+    """Turn terminal and service stop signals into a cooperative shutdown request."""
     requested = threading.Event()
-    previous_handler = signal.getsignal(signal.SIGINT)
+    handled_signals = [signal.SIGINT]
+    if hasattr(signal, "SIGTERM"):
+        handled_signals.append(signal.SIGTERM)
+    previous_handlers = {
+        signum: signal.getsignal(signum) for signum in handled_signals
+    }
 
     def request_stop(_signum: int, _frame: object) -> None:
         requested.set()
 
-    signal.signal(signal.SIGINT, request_stop)
+    for signum in handled_signals:
+        signal.signal(signum, request_stop)
     try:
         yield requested
     finally:
-        signal.signal(signal.SIGINT, previous_handler)
+        for signum, previous_handler in previous_handlers.items():
+            signal.signal(signum, previous_handler)
+
+
+def resume_wait_delay(
+    next_at: datetime | None,
+    *,
+    buffer_seconds: int,
+    poll_seconds: int,
+) -> int:
+    """Avoid a busy loop when HH exposes a stale next-raise timestamp."""
+    if next_at is None:
+        return poll_seconds
+    delay = seconds_until(next_at, buffer_seconds=buffer_seconds)
+    return delay if delay > 0 else poll_seconds
 
 
 def log_activity_results(results: list[ActivityResult]) -> None:
@@ -469,10 +489,10 @@ def run_browser_context(
                 )
             if args.once:
                 return
-            resume_wait_seconds = (
-                seconds_until(next_at, buffer_seconds=args.buffer_seconds)
-                if next_at
-                else args.poll_seconds
+            resume_wait_seconds = resume_wait_delay(
+                next_at,
+                buffer_seconds=args.buffer_seconds,
+                poll_seconds=args.poll_seconds,
             )
             wait_seconds = resume_wait_seconds
             if next_activity_at is not None:

@@ -165,10 +165,19 @@ def run_vacancy_page_group(
             )
             continue
         if not match_accepted:
+            match_score = result.metadata.get("match_score")
+            if match_score is None:
+                LOGGER.info(
+                    "Отклик на вакансию ID %s не выполняется: "
+                    "текст резюме недоступен для сопоставления.",
+                    vacancy_id or "не распознан",
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
+                continue
             LOGGER.info(
                 "Отклик на вакансию ID %s не выполняется: соответствие %s%% ниже порога %s%%.",
                 vacancy_id or "не распознан",
-                result.metadata.get("match_score"),
+                match_score,
                 policy.match_threshold,
                 extra=event_data(
                     LogEvent.VACANCY_MATCH,

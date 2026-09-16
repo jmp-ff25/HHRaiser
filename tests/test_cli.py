@@ -3,10 +3,16 @@ from __future__ import annotations
 import signal
 import unittest
 from contextlib import redirect_stderr
+from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
-from hh_raiser.cli import build_parser, graceful_interrupt, log_activity_results
+from hh_raiser.cli import (
+    build_parser,
+    graceful_interrupt,
+    log_activity_results,
+    resume_wait_delay,
+)
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.logging_config import configure_logging
@@ -18,6 +24,22 @@ class CliTests(unittest.TestCase):
             signal.raise_signal(signal.SIGINT)
 
         self.assertTrue(requested.is_set())
+
+    @unittest.skipUnless(hasattr(signal, "SIGTERM"), "SIGTERM is unavailable")
+    def test_service_stop_requests_graceful_shutdown(self) -> None:
+        with graceful_interrupt() as requested:
+            signal.raise_signal(signal.SIGTERM)
+
+        self.assertTrue(requested.is_set())
+
+    def test_stale_raise_time_falls_back_to_normal_polling(self) -> None:
+        delay = resume_wait_delay(
+            datetime.now().astimezone() - timedelta(minutes=5),
+            buffer_seconds=30,
+            poll_seconds=600,
+        )
+
+        self.assertEqual(delay, 600)
 
     def test_profession_is_not_hardcoded_in_cli_defaults(self) -> None:
         args = build_parser().parse_args([])

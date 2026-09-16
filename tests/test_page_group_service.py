@@ -26,6 +26,43 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
+    def test_resume_text_is_captured_before_opening_search_results(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(vacancies_per_cycle=1, vacancy_matching=True)
+            calls: list[str] = []
+
+            def read_resume(_page, _title):
+                calls.append("resume")
+                return "Python developer"
+
+            def search(_page, _policy, **_options):
+                calls.append("search")
+                return result(ActivityKind.REVIEW_SEARCH), [], 1
+
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.read_resume_text",
+                    side_effect=read_resume,
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    side_effect=search,
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python developer"
+                )
+
+            self.assertEqual(calls[0], "resume")
+            self.assertTrue(all(call == "search" for call in calls[1:]))
+            self.assertEqual(traversal.resume_text, "Python developer")
+
     def test_known_response_is_viewed_without_analysis_or_second_response(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")
