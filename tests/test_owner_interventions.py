@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
+import cv2
+import numpy as np
+
 from hh_raiser.infrastructure.browser.captcha_answer_source import (
     CaptchaRequest,
-    WebsiteCaptchaAnswerSource,
+    CaptchaSolutione,
 )
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
@@ -16,6 +20,8 @@ from hh_raiser.infrastructure.browser.captcha_guard import (
     captcha_controls,
 )
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class OwnerInterventionStoreTests(unittest.TestCase):
@@ -60,15 +66,85 @@ class OwnerInterventionStoreTests(unittest.TestCase):
             self.assertFalse(screenshot.exists())
 
 
-class WebsiteCaptchaAnswerSourceTests(unittest.TestCase):
-    def test_stub_does_not_return_or_send_a_captcha_answer(self) -> None:
-        source = WebsiteCaptchaAnswerSource()
+class CaptchaSolutioneTests(unittest.TestCase):
+    def test_returns_text_from_gemini_json_response(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "polza_api_key = test-key\n"
+                "ocr_prompt = Точно перепиши CAPTCHA\n"
+                'api_url = "https://polza.ai/api/v1"\n'
+                'model = "google/gemini-3.8-flash"\n',
+                encoding="utf-8",
+            )
+            image = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, buffer = cv2.imencode(".png", image)
+            self.assertTrue(succeeded)
 
-        answer = source.get_answer(
-            CaptchaRequest(challenge_id="one", image_bytes=b"png", prompt="Введите текст")
+            with patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai:
+                response = openai.return_value.chat.completions.create.return_value
+                response.choices = [MagicMock(message=MagicMock(content='{"text":"Верный ответ"}'))]
+                answer = CaptchaSolutione(config_path).get_answer(
+                    CaptchaRequest("one", buffer.tobytes(), "Введите текст")
+                )
+
+        self.assertEqual(answer, "верный ответ")
+
+
+class GeminiCaptchaFallbackTests(unittest.TestCase):
+    def test_tries_gemini_five_times_before_manual_fallback(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = MagicMock()
+            source.get_answer.side_effect = ["ответ"] * 5
+            guard = CaptchaGuard(OwnerInterventionStore(Path(directory)), answer_source=source)
+            page = MagicMock()
+            page.is_closed.return_value = False
+            image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+
+            with (
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                    return_value=True,
+                ),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                    return_value=(image, input_field, submit),
+                ),
+                patch.object(
+                    guard, "_wait_for_result", side_effect=[False, False, False, False, False]
+                ),
+            ):
+                self.assertFalse(guard._try_gemini_answers(page, lambda: False))
+
+        self.assertEqual(source.get_answer.call_count, 5)
+        self.assertEqual(input_field.fill.call_count, 5)
+
+    def test_missing_config_logs_error_and_returns_no_answer(self) -> None:
+        with (
+            TemporaryDirectory() as directory,
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_answer_source.LOGGER.error"
+            ) as log_error,
+        ):
+            source = CaptchaSolutione(Path(directory) / "missing.ini")
+
+        self.assertIsNone(
+            source.get_answer(CaptchaRequest("one", b"not-an-image", "Введите текст"))
+        )
+        log_error.assert_called_once()
+
+    @unittest.skipUnless(
+        os.environ.get("RUN_CAPTCHA_INTEGRATION") == "1",
+        "Укажите RUN_CAPTCHA_INTEGRATION=1: тест выполнит один платный запрос Gemini.",
+    )
+    def test_recognizes_real_captcha_with_gemini(self) -> None:
+        image_path = PROJECT_ROOT / "tests" / "fixtures" / "captcha_gemini_integration.jpg"
+        answer = CaptchaSolutione(PROJECT_ROOT / "hh-config.ini").get_answer(
+            CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
         )
 
-        self.assertIsNone(answer)
+        self.assertEqual(answer, "евшему увидала")
 
 
 class CaptchaRecognitionTests(unittest.TestCase):

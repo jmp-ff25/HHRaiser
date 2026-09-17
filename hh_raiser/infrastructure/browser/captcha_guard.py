@@ -25,6 +25,7 @@ _CAPTCHA_HEADING = "Подтвердите, что вы не робот"
 _POLL_MILLISECONDS = 750
 _RESULT_WAIT_MILLISECONDS = 8_000
 _FORM_WAIT_MILLISECONDS = 10_000
+_GEMINI_ATTEMPTS = 5
 
 
 class CaptchaResolver(Protocol):
@@ -117,11 +118,13 @@ class CaptchaGuard:
             return False
         should_stop = stop_requested or (lambda: False)
         LOGGER.warning(
-            "HH запросил подтверждение владельца; активность приостановлена, "
-            "CAPTCHA отправляется в Telegram.",
-            extra=event_data(LogEvent.AUTH),
+            "HH запросил CAPTCHA; пробую автоматическое распознавание перед ручным режимом.",
+            extra=event_data(LogEvent.CAPTCHA),
         )
         while self.is_present(page):
+            if self._try_gemini_answers(page, should_stop):
+                return True
+
             image, input_field, submit = captcha_controls(page)
             try:
                 for control in (image, input_field, submit):
@@ -184,6 +187,59 @@ class CaptchaGuard:
                 extra=event_data(LogEvent.AUTH),
             )
         return True
+
+    def _try_gemini_answers(self, page: Page, stop_requested: Callable[[], bool]) -> bool:
+        """Проверить до пяти вариантов Gemini до перехода к ручному подтверждению."""
+        if self.answer_source is None:
+            return False
+
+        for attempt in range(1, _GEMINI_ATTEMPTS + 1):
+            if stop_requested() or page.is_closed() or not self.is_present(page):
+                return False
+            image, input_field, submit = captcha_controls(page)
+            try:
+                for control in (image, input_field, submit):
+                    control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
+            except PlaywrightTimeoutError:
+                return False
+
+            answer = _answer_from_source(
+                self.answer_source,
+                CaptchaRequest(
+                    challenge_id=uuid.uuid4().hex,
+                    image_bytes=image.screenshot(type="png"),
+                    prompt="Введите текст с изображения. Регистр обычно не важен.",
+                ),
+            )
+            if answer is None:
+                continue
+            LOGGER.info(
+                "Пробую ответ Gemini: попытка %s из %s.",
+                attempt,
+                _GEMINI_ATTEMPTS,
+                extra=event_data(LogEvent.CAPTCHA),
+            )
+            input_field.fill(answer)
+            submit.click()
+            if self._wait_for_result(page, stop_requested):
+                LOGGER.info(
+                    "Ответ Gemini принят HH.",
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                return True
+            LOGGER.warning(
+                "HH не принял ответ Gemini: попытка %s из %s.",
+                attempt,
+                _GEMINI_ATTEMPTS,
+                extra=event_data(LogEvent.CAPTCHA),
+            )
+
+        LOGGER.warning(
+            "Gemini не решил CAPTCHA за %s попыток; отправляю её в Telegram.",
+            _GEMINI_ATTEMPTS,
+            extra=event_data(LogEvent.CAPTCHA),
+        )
+        return False
 
     @staticmethod
     def is_present(page: Page) -> bool:

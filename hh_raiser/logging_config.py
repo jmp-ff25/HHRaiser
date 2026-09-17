@@ -19,6 +19,7 @@ class LogEvent(StrEnum):
 
     SYSTEM = "system"
     AUTH = "auth"
+    CAPTCHA = "captcha"
     BROWSER = "browser"
     MODAL = "modal"
     NETWORK = "network"
@@ -52,6 +53,7 @@ class RichEventHandler(logging.Handler):
     _EVENT_STYLES: ClassVar[dict[str, str]] = {
         LogEvent.SYSTEM: "#f8fafc",
         LogEvent.AUTH: "bold #c084fc",
+        LogEvent.CAPTCHA: "bold #2dd4bf",
         LogEvent.BROWSER: "#60a5fa",
         LogEvent.MODAL: "bold #fb923c",
         LogEvent.NETWORK: "#67e8f9",

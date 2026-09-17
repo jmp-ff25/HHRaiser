@@ -30,7 +30,7 @@ from hh_raiser.credentials import read_credentials_file
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
-from hh_raiser.infrastructure.browser.captcha_answer_source import WebsiteCaptchaAnswerSource
+from hh_raiser.infrastructure.browser.captcha_answer_source import CaptchaSolutione
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
     CaptchaResolver,
@@ -464,7 +464,7 @@ def run_browser_context(
     capture = NetworkCapture()
     page.on("response", capture.observe)
     answer_source = (
-        WebsiteCaptchaAnswerSource() if args.captcha_answer_source == "website" else None
+        CaptchaSolutione() if args.captcha_answer_source == "website" else None
     )
     captcha_guard = (
         CaptchaGuard(
