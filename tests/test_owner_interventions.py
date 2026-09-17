@@ -120,6 +120,32 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         self.assertEqual(source.get_answer.call_count, 5)
         self.assertEqual(input_field.fill.call_count, 5)
 
+    def test_manual_fallback_does_not_call_gemini_after_five_attempts(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = MagicMock()
+            guard = CaptchaGuard(OwnerInterventionStore(Path(directory)), answer_source=source)
+            page = MagicMock()
+            page.is_closed.return_value = False
+            image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+            image.screenshot.return_value = b"png"
+
+            with (
+                patch.object(guard, "_try_gemini_answers", return_value=False),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                    return_value=True,
+                ),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                    return_value=(image, input_field, submit),
+                ),
+                patch.object(guard, "_wait_for_answer", return_value="ручной ответ"),
+                patch.object(guard, "_wait_for_result", return_value=True),
+            ):
+                self.assertTrue(guard.resolve_if_present(page))
+
+        source.get_answer.assert_not_called()
+
     def test_missing_config_logs_error_and_returns_no_answer(self) -> None:
         with (
             TemporaryDirectory() as directory,

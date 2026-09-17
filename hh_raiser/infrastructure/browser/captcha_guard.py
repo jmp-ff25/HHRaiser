@@ -145,22 +145,6 @@ class CaptchaGuard:
                 screenshot_path,
                 "Введите текст с изображения. Регистр обычно не важен.",
             )
-            external_answer = _answer_from_source(
-                self.answer_source,
-                CaptchaRequest(
-                    challenge_id=challenge_id,
-                    image_bytes=image_bytes,
-                    prompt="Введите текст с изображения. Регистр обычно не важен.",
-                ),
-            )
-            if external_answer is not None:
-                input_field.fill(external_answer)
-                submit.click()
-                if self._wait_for_result(page, should_stop):
-                    self.store.finish(challenge_id, "resolved")
-                    return True
-                self.store.finish(challenge_id, "failed")
-                continue
             answer = self._wait_for_answer(page, challenge_id, should_stop)
             current_fingerprint = hashlib.sha256(image.screenshot(type="png")).digest()
             if current_fingerprint != fingerprint:

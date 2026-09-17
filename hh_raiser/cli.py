@@ -60,9 +60,7 @@ def graceful_interrupt() -> Iterator[threading.Event]:
     handled_signals = [signal.SIGINT]
     if hasattr(signal, "SIGTERM"):
         handled_signals.append(signal.SIGTERM)
-    previous_handlers = {
-        signum: signal.getsignal(signum) for signum in handled_signals
-    }
+    previous_handlers = {signum: signal.getsignal(signum) for signum in handled_signals}
 
     def request_stop(_signum: int, _frame: object) -> None:
         requested.set()
@@ -463,9 +461,7 @@ def run_browser_context(
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
-    answer_source = (
-        CaptchaSolutione() if args.captcha_answer_source == "website" else None
-    )
+    answer_source = CaptchaSolutione() if args.captcha_answer_source == "website" else None
     captcha_guard = (
         CaptchaGuard(
             OwnerInterventionStore(args.profile_dir.parent),
@@ -484,7 +480,9 @@ def run_browser_context(
         minimum_cooldown = timedelta(hours=args.minimum_cooldown_hours)
         activity_policy = build_activity_policy(args)
         report_path = args.profile_dir.parent / "activity-events.jsonl"
-        orchestrator = build_activity_orchestrator(args, activity_policy, captcha_guard, should_stop)
+        orchestrator = build_activity_orchestrator(
+            args, activity_policy, captcha_guard, should_stop
+        )
         activity_enabled = args.full_activity and not args.dry_run
         next_activity_at = datetime.now(MOSCOW) if activity_enabled else None
         resume_refresh_enabled = args.resume_index_refresh and not args.dry_run

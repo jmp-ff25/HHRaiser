@@ -34,6 +34,8 @@ class CaptchaAnswerSource(Protocol):
 
 
 class CaptchaSolutione:
+    REQUEST_TIMEOUT_SECONDS = 20.0
+
     def __init__(self, config_path: Path = Path("hh-config.ini")) -> None:
         """Создать источник из секции ``[captchasolution]`` INI-файла."""
         self.client: OpenAI | None = None
@@ -68,7 +70,12 @@ class CaptchaSolutione:
                 extra=event_data(LogEvent.CAPTCHA),
             )
             return
-        self.client = OpenAI(api_key=api_key, base_url=api_url)
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=api_url,
+            timeout=self.REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
         self.model = model
         self.prompt = prompt
 
@@ -118,7 +125,11 @@ class CaptchaSolutione:
         if answer is None:
             LOGGER.warning("Gemini не вернул текст CAPTCHA.", extra=event_data(LogEvent.CAPTCHA))
             return None
-        LOGGER.info("CAPTCHA распознана: %s", answer, extra=event_data(LogEvent.CAPTCHA))
+        LOGGER.info(
+            "Gemini вернул ответ CAPTCHA длиной %s символов.",
+            len(answer),
+            extra=event_data(LogEvent.CAPTCHA),
+        )
         return answer
 
     def _straighten_text(self, image: np.ndarray) -> list[tuple[str, np.ndarray]]:
