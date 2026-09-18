@@ -34,6 +34,7 @@ class FileConfig:
     match_threshold: int | None = None
     auto_respond: bool | None = None
     daily_response_limit: int | None = None
+    captcha_answer_source: bool | None = None
     search_filters: SearchFilters = field(default_factory=SearchFilters)
 
 
@@ -50,6 +51,7 @@ class RuntimeSettings:
     match_threshold: int
     auto_respond: bool
     daily_response_limit: int
+    captcha_answer_source: bool
     search_filters: SearchFilters
 
 
@@ -99,6 +101,7 @@ def read_file_config(path: Path) -> FileConfig:
         match_threshold = parser.getint("matching", "threshold", fallback=None)
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
         daily_response_limit = parser.getint("responses", "daily_limit", fallback=None)
+        captcha_answer_source = parser.getboolean("captchasolution", "enabled", fallback=None)
         search_filters = SearchFilters(
             excluded_words=parse_search_queries(
                 parser.get("search_filters", "excluded_words", fallback="")
@@ -129,6 +132,7 @@ def read_file_config(path: Path) -> FileConfig:
         match_threshold=match_threshold,
         auto_respond=auto_respond,
         daily_response_limit=daily_response_limit,
+        captcha_answer_source=captcha_answer_source,
         search_filters=search_filters,
     )
 
@@ -189,6 +193,11 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "daily_response_limit", None)
         if getattr(args, "daily_response_limit", None) is not None
         else file_config.daily_response_limit
+    )
+    captcha_answer_source = (
+        getattr(args, "captcha_answer_source", None)
+        if getattr(args, "captcha_answer_source", None) is not None
+        else file_config.captcha_answer_source
     )
 
     if not resume_title:
@@ -262,5 +271,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             minimum=0,
             maximum=1_000,
         ),
+        captcha_answer_source=bool(captcha_answer_source),
         search_filters=file_config.search_filters,
     )

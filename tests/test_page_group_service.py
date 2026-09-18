@@ -55,9 +55,7 @@ class PageGroupServiceTests(unittest.TestCase):
                     return_value=result(ActivityKind.REVIEW_RESUME),
                 ),
             ):
-                run_vacancy_page_group(
-                    object(), policy, traversal, history, "Python developer"
-                )
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
 
             self.assertEqual(calls[0], "resume")
             self.assertTrue(all(call == "search" for call in calls[1:]))
@@ -190,9 +188,7 @@ class PageGroupServiceTests(unittest.TestCase):
                     "hh_raiser.application.page_group_service.view_vacancies",
                     return_value=[viewed],
                 ) as view,
-                patch(
-                    "hh_raiser.application.page_group_service.respond_to_vacancy"
-                ) as respond,
+                patch("hh_raiser.application.page_group_service.respond_to_vacancy") as respond,
                 patch(
                     "hh_raiser.application.page_group_service.review_resume",
                     return_value=result(ActivityKind.REVIEW_RESUME),

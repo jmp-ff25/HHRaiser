@@ -115,6 +115,14 @@ class CliTests(unittest.TestCase):
         args = build_parser().parse_args([])
         self.assertFalse(args.full_activity)
 
+    def test_captcha_answer_source_is_a_short_boolean_option(self) -> None:
+        self.assertTrue(
+            build_parser().parse_args(["--captcha-answer-source"]).captcha_answer_source
+        )
+        self.assertFalse(
+            build_parser().parse_args(["--no-captcha-answer-source"]).captcha_answer_source
+        )
+
     def test_full_activity_options_are_parsed(self) -> None:
         args = build_parser().parse_args(
             [

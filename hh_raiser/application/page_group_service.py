@@ -154,8 +154,7 @@ def run_vacancy_page_group(
             continue
 
         match_accepted = (
-            not policy.vacancy_matching
-            or result.metadata.get("match_accepted") is True
+            not policy.vacancy_matching or result.metadata.get("match_accepted") is True
         )
         if result.status is not ActivityStatus.SUCCESS:
             LOGGER.info(
@@ -216,9 +215,7 @@ def run_vacancy_page_group(
         response_result = respond_to_vacancy(
             page,
             vacancy_url=outcome.url,
-            vacancy_title=str(
-                result.metadata.get("vacancy_title") or "название не распознано"
-            ),
+            vacancy_title=str(result.metadata.get("vacancy_title") or "название не распознано"),
         )
         response_result = replace(
             response_result,

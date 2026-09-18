@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from html import escape
@@ -614,11 +615,19 @@ class TelegramControlBot:
             for instance_key, instance in self.settings.instances.items():
                 store = self.intervention_stores[instance_key]
                 for user_id in self.settings.allowed_user_ids:
-                    challenges = await asyncio.to_thread(store.pending_for_user, user_id)
+                    try:
+                        challenges = await asyncio.to_thread(store.pending_for_user, user_id)
+                    except (OSError, sqlite3.Error) as error:
+                        LOGGER.warning(
+                            "Не удалось прочитать ожидающие CAPTCHA: %s.",
+                            type(error).__name__,
+                            extra=event_data(LogEvent.AUTH),
+                        )
+                        continue
                     for challenge in challenges:
-                        if not challenge.screenshot_path.is_file():
-                            continue
                         try:
+                            if not challenge.screenshot_path.is_file():
+                                continue
                             sent = await bot.send_photo(
                                 chat_id=user_id,
                                 photo=FSInputFile(challenge.screenshot_path),
@@ -642,6 +651,12 @@ class TelegramControlBot:
                             )
                             LOGGER.info(
                                 "Запрос подтверждения HH отправлен разрешённому владельцу.",
+                                extra=event_data(LogEvent.AUTH),
+                            )
+                        except (OSError, sqlite3.Error) as error:
+                            LOGGER.warning(
+                                "Не удалось обработать ожидающую CAPTCHA: %s.",
+                                type(error).__name__,
                                 extra=event_data(LogEvent.AUTH),
                             )
                         except TelegramAPIError:

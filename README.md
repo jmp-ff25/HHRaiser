@@ -834,7 +834,8 @@ sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --use
 
 ### Точка расширения для личного сайта ввода
 
-Опция `--captcha-answer-source website` включает `CaptchaSolutione` в
+Укажите `enabled = true` в `[captchasolution]`, чтобы `task full-activity` и
+`task full-activity-ui` автоматически включали `CaptchaSolutione` в
 `hh_raiser/infrastructure/browser/captcha_answer_source.py`. Источник берёт
 `polza_api_key`, `ocr_prompt`, `api_url` и `model` из секции `[captchasolution]`
 локального `hh-config.ini`, распознаёт изображение через Gemini и возвращает только
@@ -845,6 +846,9 @@ sudo -u hhraiser env XDG_RUNTIME_DIR=/run/user/$(id -u hhraiser) systemctl --use
 или модель не вернула текст, CAPTCHA сохраняется и отправляется владельцу в Telegram
 для ручного ответа. Ошибки настройки или API не останавливают основную работу и
 также переводят CAPTCHA в ручной режим.
+
+Флаг `--captcha-answer-source` принудительно включает Gemini для одного запуска,
+а `--no-captcha-answer-source` принудительно отключает его.
 
 ## Структура проекта
 

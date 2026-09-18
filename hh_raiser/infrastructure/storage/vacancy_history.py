@@ -396,7 +396,6 @@ class VacancyHistory:
             ).fetchone()
         return row is not None
 
-
     def response_status(self, url: str) -> VacancyResponseStatus | None:
         """Return only an outcome that prevents another automatic response attempt."""
         vacancy_id = vacancy_id_from_url(url)

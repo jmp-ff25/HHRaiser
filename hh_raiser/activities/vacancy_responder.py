@@ -141,7 +141,9 @@ def respond_to_vacancy(
         if _visible(submit) and submit.is_enabled():
             submit.click(timeout=10_000)
             page.wait_for_timeout(1_000)
-            post_response_modal_text = post_response_modal_text or _read_post_response_modal_text(page)
+            post_response_modal_text = post_response_modal_text or _read_post_response_modal_text(
+                page
+            )
             if _existing_response_visible(page):
                 return _sent_result(
                     vacancy_id,

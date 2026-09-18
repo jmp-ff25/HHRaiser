@@ -128,6 +128,7 @@ class VacancyViewerTests(unittest.TestCase):
         self.assertEqual(outcomes[0].result.metadata["scrolls_completed"], 0)
         self.assertEqual(page.body.press_calls, [])
         self.assertEqual(page.wait_calls, [])
+
     def test_rejected_vacancy_can_be_viewed_without_becoming_eligible(self) -> None:
         page = FakeVacancyPage()
         matcher = Mock()

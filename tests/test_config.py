@@ -65,6 +65,17 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "search_filters.search_fields"):
                 read_file_config(path)
 
+    def test_reads_captcha_answer_source_from_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Аналитик\n[captchasolution]\nenabled = true\n",
+                encoding="utf-8",
+            )
+            config = read_file_config(path)
+
+        self.assertTrue(config.captcha_answer_source)
+
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"

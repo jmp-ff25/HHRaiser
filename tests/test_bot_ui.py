@@ -34,7 +34,6 @@ class BotUiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(TelegramBadRequest, "not found"):
             await edit_message_if_changed(message, "new", MagicMock())
 
-
     async def test_media_message_opens_a_new_text_view(self) -> None:
         message = MagicMock()
         message.text = None
@@ -48,6 +47,7 @@ class BotUiTests(unittest.IsolatedAsyncioTestCase):
         message.edit_text.assert_not_awaited()
         message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
         message.answer.assert_awaited_once_with("Все экземпляры", reply_markup=keyboard)
+
 
 if __name__ == "__main__":
     unittest.main()

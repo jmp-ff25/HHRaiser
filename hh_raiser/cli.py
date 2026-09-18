@@ -309,11 +309,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--captcha-answer-source",
-        choices=("none", "website"),
-        default="none",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
-            "Дополнительный ручной источник ответа CAPTCHA. website пока является "
-            "заглушкой и не заменяет Telegram или ввод в Chromium."
+            "Включить Gemini для CAPTCHA; по умолчанию значение берётся из "
+            "[captchasolution] enabled в hh-config.ini."
         ),
     )
     parser.add_argument("--install-browser", action="store_true")
@@ -461,7 +461,7 @@ def run_browser_context(
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
-    answer_source = CaptchaSolutione() if args.captcha_answer_source == "website" else None
+    answer_source = CaptchaSolutione() if args.captcha_answer_source else None
     captcha_guard = (
         CaptchaGuard(
             OwnerInterventionStore(args.profile_dir.parent),
@@ -628,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
     args.match_threshold = settings.match_threshold
     args.auto_respond = settings.auto_respond
     args.daily_response_limit = settings.daily_response_limit
+    args.captcha_answer_source = settings.captcha_answer_source
     args.search_filters = settings.search_filters
     if args.full_activity and args.search_filters.areas:
         try:
