@@ -221,6 +221,7 @@ __marimo__/
 # HHResumeRaiser local state and credentials
 .hh-resume-raiser/
 hh-credentials.ini
+.env
 hh-config.ini
 hh-bot.ini
 hh-bot.env

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import configparser
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,13 +61,14 @@ class CaptchaSolutione:
             )
             return
 
-        api_key = self._read_setting(parser, "polza_api_key")
+        api_key = os.environ.get("HHRAISER_POLZA_API_KEY", "").strip()
+        api_key = api_key or self._read_setting(parser, "polza_api_key")
         prompt = self._read_setting(parser, "ocr_prompt")
         api_url = self._read_setting(parser, "api_url")
         model = self._read_setting(parser, "model")
         if not all((api_key, prompt, api_url, model)):
             LOGGER.error(
-                "В [captchasolution] задайте polza_api_key, ocr_prompt, api_url и model.",
+                "Задайте HHRAISER_POLZA_API_KEY в .env и параметры CAPTCHA в hh-config.ini.",
                 extra=event_data(LogEvent.CAPTCHA),
             )
             return

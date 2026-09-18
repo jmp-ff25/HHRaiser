@@ -2,11 +2,9 @@ version: "3"
 
 vars:
   CONFIG_FILE: hh-config.ini
-  CREDENTIALS_FILE: hh-credentials.ini
   BOT_CONFIG_FILE: hh-bot.ini
   COMMON_ARGS: >-
     --config-file "{{.CONFIG_FILE}}"
-    --credentials-file "{{.CREDENTIALS_FILE}}"
   ACTIVITY_ARGS: --full-activity
   RESUME_REFRESH_ARGS: --resume-index-refresh
   RESPONSE_ARGS: --auto-respond
@@ -30,6 +28,7 @@ tasks:
       - uv sync --locked
       - uv run --locked playwright install chromium
       - task: prepare-config
+      - task: prepare-env
 
   install-dev:
     desc: Установить приложение с инструментами разработки и Chromium
@@ -37,6 +36,7 @@ tasks:
       - uv sync --locked --extra dev
       - uv run --locked playwright install chromium
       - task: prepare-config
+      - task: prepare-env
 
   install-browser:
     desc: Установить Chromium для Playwright
@@ -61,6 +61,20 @@ tasks:
         "import os; from pathlib import Path;
         source = Path('hh-config.example.ini');
         target = Path(os.environ['HH_TASK_CONFIG_FILE']);
+        target.write_bytes(source.read_bytes())"
+
+  prepare-env:
+    desc: Создать локальный файл секретов из шаблона, если его ещё нет
+    env:
+      HH_TASK_ENV_FILE: .env
+    status:
+      - test -f ".env"
+    cmds:
+      - >-
+        uv run --locked python -c
+        "import os; from pathlib import Path;
+        source = Path('.env.example');
+        target = Path(os.environ['HH_TASK_ENV_FILE']);
         target.write_bytes(source.read_bytes())"
 
   init-session:

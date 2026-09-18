@@ -30,6 +30,7 @@ from hh_raiser.credentials import read_credentials_file
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
+from hh_raiser.env_file import DEFAULT_ENV_PATH, EnvFileError, load_env_file
 from hh_raiser.infrastructure.browser.captcha_answer_source import CaptchaSolutione
 from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
@@ -299,6 +300,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Явно перезапускать Chromium после закрытия окна (по умолчанию программа завершается).",
     )
     parser.add_argument("--check-login", action="store_true")
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=DEFAULT_ENV_PATH,
+        help="Локальный .env с паролями и токенами; внешние переменные имеют приоритет.",
+    )
     parser.add_argument("--phone")
     parser.add_argument("--password")
     parser.add_argument("--credentials-file", type=Path)
@@ -591,6 +598,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging()
+    try:
+        load_env_file(args.env_file.expanduser())
+    except EnvFileError as error:
+        parser.error(str(error))
     if args.self_test:
         import unittest
 
