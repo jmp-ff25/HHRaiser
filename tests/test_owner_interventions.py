@@ -160,6 +160,63 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         )
         log_error.assert_called_once()
 
+    def test_visible_browser_tries_gemini_five_times_before_manual_fallback(self) -> None:
+        source = MagicMock()
+        source.get_answer.side_effect = ["ответ"] * 5
+        page = MagicMock()
+        page.is_closed.return_value = False
+        image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+        image.screenshot.return_value = b"png"
+        guard = ManualCaptchaGuard(headless=False, answer_source=source)
+
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                side_effect=[True, True, True, True, True, True, False],
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                return_value=(image, input_field, submit),
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard._wait_for_captcha_result",
+                return_value=False,
+            ),
+        ):
+            self.assertTrue(guard.resolve_if_present(page))
+
+        self.assertEqual(source.get_answer.call_count, 5)
+        self.assertEqual(input_field.fill.call_count, 5)
+
+    def test_headless_browser_tries_gemini_before_manual_error(self) -> None:
+        source = MagicMock()
+        source.get_answer.side_effect = ["ответ"] * 5
+        page = MagicMock()
+        page.is_closed.return_value = False
+        image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+        image.screenshot.return_value = b"png"
+        guard = ManualCaptchaGuard(headless=True, answer_source=source)
+
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                side_effect=[True, True, True, True, True, True],
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                return_value=(image, input_field, submit),
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard._wait_for_captcha_result",
+                return_value=False,
+            ),
+            self.assertRaisesRegex(ManualCaptchaRequired, "без окна"),
+        ):
+            guard.resolve_if_present(page)
+
+        self.assertEqual(source.get_answer.call_count, 5)
+        self.assertEqual(input_field.fill.call_count, 5)
+
     @unittest.skipUnless(
         os.environ.get("RUN_CAPTCHA_INTEGRATION") == "1",
         "Укажите RUN_CAPTCHA_INTEGRATION=1: тест выполнит один платный запрос Gemini.",

@@ -68,15 +68,24 @@ class ManualCaptchaGuard:
     ) -> bool:
         if not CaptchaGuard.is_present(page):
             return False
+        should_stop = stop_requested or (lambda: False)
+        if _try_gemini_answers(
+            page,
+            self.answer_source,
+            should_stop,
+            fallback_message=(
+                "останавливаю headless-запуск"
+                if self.headless
+                else "перехожу к ручному вводу в Chromium"
+            ),
+        ):
+            return True
         if self.headless:
             raise ManualCaptchaRequired(
                 "HH запросил CAPTCHA, но Chromium запущен без окна. "
                 "Запустите видимый режим или включите --telegram-captcha."
             )
 
-        should_stop = stop_requested or (lambda: False)
-        if _submit_external_answer(page, self.answer_source):
-            return True
         LOGGER.warning(
             "HH запросил CAPTCHA; активность приостановлена. "
             "Завершите проверку в открытом окне Chromium.",
@@ -174,56 +183,13 @@ class CaptchaGuard:
 
     def _try_gemini_answers(self, page: Page, stop_requested: Callable[[], bool]) -> bool:
         """Проверить до пяти вариантов Gemini до перехода к ручному подтверждению."""
-        if self.answer_source is None:
-            return False
-
-        for attempt in range(1, _GEMINI_ATTEMPTS + 1):
-            if stop_requested() or page.is_closed() or not self.is_present(page):
-                return False
-            image, input_field, submit = captcha_controls(page)
-            try:
-                for control in (image, input_field, submit):
-                    control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
-            except PlaywrightTimeoutError:
-                return False
-
-            answer = _answer_from_source(
-                self.answer_source,
-                CaptchaRequest(
-                    challenge_id=uuid.uuid4().hex,
-                    image_bytes=image.screenshot(type="png"),
-                    prompt="Введите текст с изображения. Регистр обычно не важен.",
-                ),
-            )
-            if answer is None:
-                continue
-            LOGGER.info(
-                "Пробую ответ Gemini: попытка %s из %s.",
-                attempt,
-                _GEMINI_ATTEMPTS,
-                extra=event_data(LogEvent.CAPTCHA),
-            )
-            input_field.fill(answer)
-            submit.click()
-            if self._wait_for_result(page, stop_requested):
-                LOGGER.info(
-                    "Ответ Gemini принят HH.",
-                    extra=event_data(LogEvent.CAPTCHA),
-                )
-                return True
-            LOGGER.warning(
-                "HH не принял ответ Gemini: попытка %s из %s.",
-                attempt,
-                _GEMINI_ATTEMPTS,
-                extra=event_data(LogEvent.CAPTCHA),
-            )
-
-        LOGGER.warning(
-            "Gemini не решил CAPTCHA за %s попыток; отправляю её в Telegram.",
-            _GEMINI_ATTEMPTS,
-            extra=event_data(LogEvent.CAPTCHA),
+        return _try_gemini_answers(
+            page,
+            self.answer_source,
+            stop_requested,
+            fallback_message="отправляю её в Telegram",
+            wait_for_result=self._wait_for_result,
         )
-        return False
 
     @staticmethod
     def is_present(page: Page) -> bool:
@@ -290,30 +256,79 @@ def resolve_captcha(
         raise RuntimeError("Не удалось обработать CAPTCHA HH.") from error
 
 
-def _submit_external_answer(page: Page, answer_source: CaptchaAnswerSource | None) -> bool:
-    """Ввести ответ личного сайта, если тот уже доступен; иначе оставить ручной режим."""
+def _try_gemini_answers(
+    page: Page,
+    answer_source: CaptchaAnswerSource | None,
+    stop_requested: Callable[[], bool],
+    *,
+    fallback_message: str,
+    wait_for_result: Callable[[Page, Callable[[], bool]], bool] | None = None,
+) -> bool:
+    """Проверить до пяти ответов Gemini перед доступным ручным fallback."""
 
     if answer_source is None:
         return False
-    image, input_field, submit = captcha_controls(page)
-    try:
-        for control in (image, input_field, submit):
-            control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
-    except PlaywrightTimeoutError:
-        return False
-    answer = _answer_from_source(
-        answer_source,
-        CaptchaRequest(
-            challenge_id=uuid.uuid4().hex,
-            image_bytes=image.screenshot(type="png"),
-            prompt="Введите текст с изображения. Регистр обычно не важен.",
-        ),
+
+    for attempt in range(1, _GEMINI_ATTEMPTS + 1):
+        if stop_requested() or page.is_closed() or not CaptchaGuard.is_present(page):
+            return False
+        image, input_field, submit = captcha_controls(page)
+        try:
+            for control in (image, input_field, submit):
+                control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
+        except PlaywrightTimeoutError:
+            return False
+
+        answer = _answer_from_source(
+            answer_source,
+            CaptchaRequest(
+                challenge_id=uuid.uuid4().hex,
+                image_bytes=image.screenshot(type="png"),
+                prompt="Введите текст с изображения. Регистр обычно не важен.",
+            ),
+        )
+        if answer is None:
+            continue
+        LOGGER.info(
+            "Пробую ответ Gemini: попытка %s из %s.",
+            attempt,
+            _GEMINI_ATTEMPTS,
+            extra=event_data(LogEvent.CAPTCHA),
+        )
+        input_field.fill(answer)
+        submit.click()
+        result_waiter = wait_for_result or _wait_for_captcha_result
+        if result_waiter(page, stop_requested):
+            LOGGER.info("Ответ Gemini принят HH.", extra=event_data(LogEvent.CAPTCHA))
+            return True
+        LOGGER.warning(
+            "HH не принял ответ Gemini: попытка %s из %s.",
+            attempt,
+            _GEMINI_ATTEMPTS,
+            extra=event_data(LogEvent.CAPTCHA),
+        )
+
+    LOGGER.warning(
+        "Gemini не решил CAPTCHA за %s попыток; %s.",
+        _GEMINI_ATTEMPTS,
+        fallback_message,
+        extra=event_data(LogEvent.CAPTCHA),
     )
-    if answer is None:
-        return False
-    input_field.fill(answer)
-    submit.click()
-    return not CaptchaGuard.is_present(page)
+    return False
+
+
+def _wait_for_captcha_result(page: Page, stop_requested: Callable[[], bool]) -> bool:
+    """Дождаться принятия автоматического ответа HH."""
+
+    elapsed = 0
+    while elapsed < _RESULT_WAIT_MILLISECONDS:
+        if stop_requested() or page.is_closed():
+            raise OwnerInterventionCancelled
+        page.wait_for_timeout(_POLL_MILLISECONDS)
+        elapsed += _POLL_MILLISECONDS
+        if not CaptchaGuard.is_present(page):
+            return True
+    return False
 
 
 def _answer_from_source(

@@ -119,6 +119,14 @@ def login_if_needed(
         page.get_by_role("button", name="Войти", exact=True).click()
         action = wait_for_login_action(page, previous="open-login-form")
     if action != "fill-phone":
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            login_if_needed(
+                page,
+                args,
+                captcha_guard=captcha_guard,
+                stop_requested=stop_requested,
+            )
+            return
         wait_for_manual_login(page)
         return
     page.locator('[data-qa="magritte-phone-input-national-number-input"]').first.fill(
@@ -126,6 +134,14 @@ def login_if_needed(
     )
     page.get_by_role("button", name=re.compile(r"Войти с\s+паролем", re.IGNORECASE)).first.click()
     if wait_for_login_action(page, previous="fill-phone") != "fill-password":
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            login_if_needed(
+                page,
+                args,
+                captcha_guard=captcha_guard,
+                stop_requested=stop_requested,
+            )
+            return
         wait_for_manual_login(page)
         return
     password_input = page.locator(
@@ -136,6 +152,14 @@ def login_if_needed(
     submit = page.get_by_role("button", name="Войти", exact=True).first
     submit.click() if submit.count() and submit.is_visible() else password_input.press("Enter")
     if wait_for_login_action(page, previous="fill-password", timeout=30) != "authenticated":
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            login_if_needed(
+                page,
+                args,
+                captcha_guard=captcha_guard,
+                stop_requested=stop_requested,
+            )
+            return
         wait_for_manual_login(page)
 
 
