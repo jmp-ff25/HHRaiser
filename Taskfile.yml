@@ -129,19 +129,19 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity:
-    desc: Запустить все возможности в фоновом режиме
+    desc: Запустить все возможности и безопасные отклики в фоновом режиме
     cmds:
       - >-
         uv run --locked hh-resume-raiser --headless
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-ui:
-    desc: Запустить все возможности в видимом Chromium
+    desc: Запустить все возможности и безопасные отклики в видимом Chromium
     cmds:
       - >-
         uv run --locked hh-resume-raiser
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
+        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-responses:
