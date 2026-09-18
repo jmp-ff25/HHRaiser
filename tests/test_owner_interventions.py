@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import configparser
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,6 +22,33 @@ from hh_raiser.infrastructure.browser.captcha_guard import (
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _captcha_integration_enabled(config_path: Path) -> bool:
+    """Разрешить платный интеграционный тест только явной настройкой."""
+    parser = configparser.RawConfigParser(interpolation=None)
+    try:
+        with config_path.open(encoding="utf-8") as stream:
+            parser.read_file(stream)
+        return parser.getboolean("captchasolution", "integration_test_enabled", fallback=False)
+    except (OSError, configparser.Error, ValueError):
+        return False
+
+
+class CaptchaIntegrationConfigTests(unittest.TestCase):
+    def test_integration_test_is_disabled_by_default(self) -> None:
+        with TemporaryDirectory() as directory:
+            self.assertFalse(_captcha_integration_enabled(Path(directory) / "hh-config.ini"))
+
+    def test_integration_test_requires_explicit_enablement(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\nintegration_test_enabled = true\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(_captcha_integration_enabled(config_path))
 
 
 class OwnerInterventionStoreTests(unittest.TestCase):
@@ -218,8 +245,9 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         self.assertEqual(input_field.fill.call_count, 5)
 
     @unittest.skipUnless(
-        os.environ.get("RUN_CAPTCHA_INTEGRATION") == "1",
-        "Укажите RUN_CAPTCHA_INTEGRATION=1: тест выполнит один платный запрос Gemini.",
+        _captcha_integration_enabled(PROJECT_ROOT / "hh-config.ini"),
+        "Установите [captchasolution] integration_test_enabled = true в hh-config.ini "
+        "для платного запроса Gemini.",
     )
     def test_recognizes_real_captcha_with_gemini(self) -> None:
         image_path = PROJECT_ROOT / "tests" / "fixtures" / "captcha_gemini_integration.jpg"

@@ -141,6 +141,8 @@ daily_limit = 0
 [captchasolution]
 # Включите, чтобы автоматическое решение CAPTCHA работало в full-activity.
 enabled = true
+# Выполнять платный интеграционный тест Gemini при запуске тестов.
+integration_test_enabled = false
 # Секретный ключ Polza AI. Не добавляйте его в Git.
 polza_api_key = ...
 # Инструкция, отправляемая модели вместе с CAPTCHA.
