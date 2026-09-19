@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -50,6 +52,25 @@ class LoggingTests(unittest.TestCase):
         self.assertNotIn("\033[", output)
         self.assertIn("INFO tests/test_logging.py:", output)
         self.assertTrue(output.endswith(" Открыта вакансия\n"))
+
+    def test_timestamp_is_formatted_in_moscow_time(self) -> None:
+        stream = StringIO()
+        configure_logging(stream=stream, use_color=False)
+        record = logging.LogRecord(
+            name=LOGGER.name,
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="Проверяем время",
+            args=(),
+            exc_info=None,
+        )
+        record.created = 0
+
+        with patch.object(logging.Formatter, "converter", time.gmtime):
+            LOGGER.handle(record)
+
+        self.assertTrue(stream.getvalue().startswith("1970-01-01 03:00:00 INFO"))
 
     def test_environment_enables_colour_for_systemd_stream(self) -> None:
         stream = StringIO()

@@ -3,12 +3,15 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, TextIO
 
 from rich.console import Console
 from rich.text import Text
+
+from hh_raiser.models import MOSCOW
 
 LOGGER = logging.getLogger("hh_resume_raiser")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +93,7 @@ class RichEventHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            timestamp = self._formatter.formatTime(record, DATE_FORMAT)
+            timestamp = datetime.fromtimestamp(record.created, tz=MOSCOW).strftime(DATE_FORMAT)
             try:
                 location = Path(record.pathname).resolve().relative_to(PROJECT_ROOT).as_posix()
             except ValueError:
