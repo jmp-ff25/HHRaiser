@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import unittest
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from hh_raiser.bot.models import ManagedInstance, ServiceSnapshot
+from hh_raiser.bot.models import InstanceStatistics, ManagedInstance, ServiceSnapshot
 from hh_raiser.bot.presentation import (
     format_logs,
     format_periodic_summary,
@@ -91,3 +92,35 @@ class BotStatisticsTests(unittest.TestCase):
         )
         self.assertIn("Работает", summary)
         self.assertIn("Основное &lt;резюме&gt;", summary)
+
+    def test_presentation_distinguishes_response_outcomes(self) -> None:
+        instance = ManagedInstance(
+            key="main",
+            name="Основное резюме",
+            service_name="hhraiser@main.service",
+            state_dir=Path("state"),
+            config_file=Path("state/hh-config.ini"),
+        )
+        statistics = InstanceStatistics(
+            generation=1,
+            discovered=10,
+            viewed_vacancies=5,
+            total_views=5,
+            evaluated=5,
+            average_match_score=70,
+            responses_by_status=Counter({"sent": 1, "already_sent": 5, "manual_required": 1}),
+            next_raise_at=None,
+        )
+
+        text = format_statistics(instance, statistics)
+        summary = format_periodic_summary(
+            instance,
+            ServiceSnapshot(active_state="active", sub_state="running", main_pid=12),
+            statistics,
+        )
+
+        self.assertIn("Учтено вакансий с откликом: <b>7</b>", text)
+        self.assertIn("отклик уже существовал до обработки HHRaiser: 5", text)
+        self.assertIn("отправлено HHRaiser: 1", summary)
+        self.assertIn("уже были отправлены: 5", summary)
+        self.assertIn("требуют вашего участия: 1", summary)

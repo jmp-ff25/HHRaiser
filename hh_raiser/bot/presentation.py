@@ -12,9 +12,9 @@ _SERVICE_LABELS = {
     "deactivating": "🟡 Останавливается",
 }
 _RESPONSE_LABELS = {
-    "sent": "успешно отправлено",
-    "manual_required": "нужно участие кандидата",
-    "already_sent": "уже было отправлено",
+    "sent": "отправлено HHRaiser и подтверждено HH",
+    "manual_required": "не отправлено: требуется ваше участие",
+    "already_sent": "отклик уже существовал до обработки HHRaiser",
     "unavailable": "недоступно",
     "unknown": "неизвестный результат",
     "error": "техническая ошибка",
@@ -50,7 +50,12 @@ def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics)
         f"• {_RESPONSE_LABELS.get(status, status)}: {count}"
         for status, count in sorted(statistics.responses_by_status.items())
     ]
-    responses = "\n".join(response_lines) if response_lines else "• откликов пока нет"
+    responses = (
+        f"Учтено вакансий с откликом: <b>{sum(statistics.responses_by_status.values())}</b>\n"
+        + "\n".join(response_lines)
+        if response_lines
+        else "• откликов пока нет"
+    )
     return (
         f"<b>Статистика: {escape(instance.name)}</b>\n\n"
         f"Найдено уникальных вакансий: <b>{statistics.discovered}</b>\n"
@@ -81,9 +86,11 @@ def format_periodic_summary(
 
     state = _SERVICE_LABELS.get(snapshot.active_state, snapshot.active_state)
     successful = statistics.responses_by_status.get("sent", 0)
+    already_sent = statistics.responses_by_status.get("already_sent", 0)
     manual = statistics.responses_by_status.get("manual_required", 0)
     return (
         f"<b>{escape(instance.name)}</b> — {escape(state)}\n"
         f"Вакансий найдено: {statistics.discovered}; просмотров: {statistics.total_views}; "
-        f"откликов отправлено: {successful}; требуют участия: {manual}."
+        f"отправлено HHRaiser: {successful}; уже были отправлены: {already_sent}; "
+        f"требуют вашего участия: {manual}."
     )
