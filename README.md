@@ -55,11 +55,8 @@ Playwright и постоянный профиль Chromium; архитектур
 
 Ниже — короткий путь от клонирования до первого запуска на Windows, Linux и macOS.
 
-> Полноценный установщик с установкой зависимостей, запуском, обновлением и
-> деинсталляцией пока находится в плане: [план установки](docs/installation-roadmap.md).
-> До его выпуска проект запускается через `Task` и `uv`. Установите их удобным для
-> своей платформы способом по официальным инструкциям: [Task](https://taskfile.dev/docs/installation/)
-> и [uv](https://docs.astral.sh/uv/getting-started/installation/). Node.js для этого
+> `Task` — единственный инструмент, который устанавливает владелец для локальной
+> работы. Скрипты установки сами устанавливают `uv`, Python и зависимости. Node.js
 > не требуется.
 
 ### 1. Установите проект
@@ -67,7 +64,7 @@ Playwright и постоянный профиль Chromium; архитектур
 ```text
 git clone git@github.com:jmp-ff25/HHRaiser.git
 cd HHRaiser
-task install
+task setup
 ```
 
 > Кэш `uv` хранится в `.uv-cache` внутри каталога проекта на любой платформе и
@@ -80,8 +77,49 @@ task install
 
 Команда создаёт `.venv` через `uv`, устанавливает приложение и Chromium, а затем
 копирует шаблон в `state/main/hh-config.ini`, только если локальной конфигурации ещё
-нет. Каталог `state/main` — единое локальное состояние основного экземпляра: в нём
+нет. После этого она проверяет, что обязательные значения уже заполнены, не запрашивая
+секреты в терминале. Каталог `state/main` — единое локальное состояние основного экземпляра: в нём
 лежат конфиг, профиль браузера, SQLite, статус и Excel-отчёт; он исключён из Git.
+
+Если `uv` ещё не установлен, вместо `task setup` используйте один из bootstrap-скриптов:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
+```
+
+```bash
+# Linux и macOS
+./scripts/setup.sh
+```
+
+Они устанавливают `uv`, зависимости и Chromium, но завершаются с ошибкой, если `.env`
+или `state/main/hh-config.ini` отсутствуют либо содержат незаполненные обязательные поля.
+
+### Сервер Debian/Ubuntu
+
+После клонирования проекта, заполнения `.env` и `state/main/hh-config.ini` выполните:
+
+```bash
+sudo ./scripts/install-ubuntu.sh
+uv run hhraiser start
+```
+
+Установщик сам получает `uv`, Python-зависимости и Chromium, проверяет конфигурацию,
+а затем регистрирует две systemd-службы: основной экземпляр и Telegram-бота. Секреты
+не выводятся и не запрашиваются. Дальнейшее управление на сервере:
+
+```bash
+uv run hhraiser status
+uv run hhraiser logs --lines 100
+uv run hhraiser stop
+uv run hhraiser update
+uv run hhraiser reconfigure
+```
+
+Файлы проекта, включая `.env`, `state/`, виртуальную среду и Chromium, остаются внутри
+каталога HHRaiser. Systemd-unit-файлы удаляются отдельно при деинсталляции; удалить
+папку проекта во время работы службы нельзя — сначала выполните `uv run hhraiser stop`.
 
 ### 2. Заполните настройки и учётные данные
 

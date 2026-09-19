@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import getpass
 import os
 from pathlib import Path
 
@@ -55,9 +54,9 @@ def resolve_credentials(args: argparse.Namespace) -> Credentials:
         raise ValueError("Телефон и пароль нужно передать вместе")
     if phone and password:
         return Credentials(phone=phone, password=password)
-    return Credentials(
-        phone=input("Телефон HH: ").strip(),
-        password=getpass.getpass("Пароль HH: "),
+    raise ValueError(
+        "Не заданы учётные данные HH. Заполните HH_PHONE и HH_PASSWORD в .env "
+        "или передайте --phone и --password."
     )
 
 

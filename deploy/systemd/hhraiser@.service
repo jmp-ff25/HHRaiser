@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/hhraiser
+WorkingDirectory=@PROJECT_DIR@
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --telegram-captcha --config-file state/%i/hh-config.ini --profile-dir state/%i/browser-profile
+ExecStart=@PROJECT_DIR@/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --telegram-captcha --config-file state/%i/hh-config.ini --profile-dir state/%i/browser-profile
 KillSignal=SIGINT
 TimeoutStopSec=60
 Restart=no

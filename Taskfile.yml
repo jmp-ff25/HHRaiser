@@ -24,12 +24,18 @@ tasks:
       - task --list
 
   install:
-    desc: Установить приложение, зависимости и Chromium
+    desc: Установить зависимости, Chromium и проверить подготовленную конфигурацию
     cmds:
       - uv sync --locked
       - uv run --locked playwright install chromium
       - task: prepare-config
       - task: prepare-env
+      - uv run --locked hhraiser setup
+
+  setup:
+    desc: Псевдоним install для первичной установки
+    cmds:
+      - task: install
 
   install-dev:
     desc: Установить приложение с инструментами разработки и Chromium

@@ -45,3 +45,9 @@ class CredentialsTests(unittest.TestCase):
 
     def test_normalizes_russian_phone(self) -> None:
         self.assertEqual(normalize_russian_phone("+7(991) 174-28-79"), "9911742879")
+
+    def test_missing_credentials_never_requests_interactive_input(self) -> None:
+        args = argparse.Namespace(phone=None, password=None, credentials_file=None)
+
+        with self.assertRaisesRegex(ValueError, "HH_PHONE и HH_PASSWORD"):
+            resolve_credentials(args)

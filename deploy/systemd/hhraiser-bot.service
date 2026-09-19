@@ -5,9 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/hhraiser
-EnvironmentFile=/opt/hhraiser/.env
-ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser-bot
+WorkingDirectory=@PROJECT_DIR@
+EnvironmentFile=@PROJECT_DIR@/.env
+# Серверная служба управляет системными unit-файлами, независимо от локального .env.
+Environment=HHRAISER_BOT_USER_SYSTEMD=false
+ExecStart=@PROJECT_DIR@/.venv/bin/hh-resume-raiser-bot
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true

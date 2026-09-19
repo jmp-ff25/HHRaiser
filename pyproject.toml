@@ -28,6 +28,7 @@ dev = [
 ]
 
 [project.scripts]
+hhraiser = "hh_raiser.management:main"
 hh-resume-raiser = "hh_raiser.cli:main"
 hh-resume-raiser-bot = "hh_raiser.bot.cli:main"
 
