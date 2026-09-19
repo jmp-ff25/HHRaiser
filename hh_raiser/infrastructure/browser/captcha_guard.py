@@ -318,7 +318,12 @@ def _try_gemini_answers(
         )
         input_field.fill(answer)
         submit.click()
-        _record_captcha_event(audit_store, "gemini_answer_submitted", attempt=attempt)
+        _record_captcha_event(
+            audit_store,
+            "gemini_answer_submitted",
+            attempt=attempt,
+            answer=answer,
+        )
         result_waiter = wait_for_result or _wait_for_captcha_result
         if result_waiter(page, stop_requested):
             _record_captcha_event(audit_store, "gemini_resolved", attempt=attempt)
@@ -347,13 +352,22 @@ def _record_captcha_event(
     event: str,
     *,
     attempt: int | None = None,
+    answer: str | None = None,
 ) -> None:
-    """Записать обезличенное диагностическое событие в SQLite и journalctl."""
+    """Записать событие CAPTCHA и ответ Gemini в SQLite и journalctl."""
 
+    normalized_answer = " ".join(answer.split()) if answer is not None else None
     if store is not None:
-        store.record_captcha_event(event, attempt=attempt)
+        store.record_captcha_event(event, attempt=attempt, answer=normalized_answer)
     suffix = f", попытка {attempt} из {_GEMINI_ATTEMPTS}" if attempt is not None else ""
-    LOGGER.info("CAPTCHA: %s%s.", event, suffix, extra=event_data(LogEvent.CAPTCHA))
+    answer_suffix = f", ответ Gemini: {normalized_answer}" if normalized_answer else ""
+    LOGGER.info(
+        "CAPTCHA: %s%s%s.",
+        event,
+        suffix,
+        answer_suffix,
+        extra=event_data(LogEvent.CAPTCHA),
+    )
 
 
 def _wait_for_captcha_result(page: Page, stop_requested: Callable[[], bool]) -> bool:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,6 +21,7 @@ from hh_raiser.infrastructure.browser.captcha_guard import (
     CaptchaGuard,
     ManualCaptchaGuard,
     ManualCaptchaRequired,
+    _record_captcha_event,
     captcha_controls,
 )
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
@@ -59,21 +61,66 @@ class CaptchaIntegrationConfigTests(unittest.TestCase):
 
 
 class OwnerInterventionStoreTests(unittest.TestCase):
-    def test_persists_anonymized_captcha_audit_events(self) -> None:
+    def test_persists_gemini_answer_in_captcha_audit_events(self) -> None:
         with TemporaryDirectory() as directory:
             store = OwnerInterventionStore(Path(directory))
             store.record_captcha_event("gemini_attempt_started", attempt=1)
-            store.record_captcha_event("gemini_resolved", attempt=1)
+            store.record_captcha_event(
+                "gemini_answer_submitted",
+                attempt=1,
+                answer="увидала евшему",
+            )
 
             events = store.captcha_audit_events()
 
         self.assertEqual(
-            [(item.event, item.attempt) for item in events],
+            [(item.event, item.attempt, item.answer) for item in events],
             [
-                ("gemini_attempt_started", 1),
-                ("gemini_resolved", 1),
+                ("gemini_attempt_started", 1, None),
+                ("gemini_answer_submitted", 1, "увидала евшему"),
             ],
         )
+
+    def test_migrates_existing_captcha_audit_table_for_answer(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            database_path = state_dir / "owner-interventions.sqlite3"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE captcha_audit_events (
+                        id INTEGER PRIMARY KEY,
+                        event TEXT NOT NULL,
+                        attempt INTEGER,
+                        occurred_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store = OwnerInterventionStore(state_dir)
+            store.record_captcha_event("gemini_answer_submitted", answer="распознанный текст")
+
+            events = store.captcha_audit_events()
+
+        self.assertEqual(events[-1].answer, "распознанный текст")
+
+    def test_records_gemini_answer_in_terminal_audit_log(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = OwnerInterventionStore(Path(directory))
+            with patch("hh_raiser.infrastructure.browser.captcha_guard.LOGGER.info") as log_info:
+                _record_captcha_event(
+                    store,
+                    "gemini_answer_submitted",
+                    attempt=2,
+                    answer="  распознанный\nтекст  ",
+                )
+            events = store.captcha_audit_events()
+
+        self.assertEqual(events[-1].answer, "распознанный текст")
+        self.assertIn("распознанный текст", log_info.call_args.args[-1])
 
     def test_delivers_reply_only_to_matching_pending_challenge(self) -> None:
         with TemporaryDirectory() as directory:
@@ -122,6 +169,7 @@ class CaptchaSolutioneTests(unittest.TestCase):
             config_path = Path(directory) / "hh-config.ini"
             config_path.write_text(
                 "[captchasolution]\n"
+                'ocr_prompt = "Текст только из конфигурации"\n'
                 'api_url = "https://polza.ai/api/v1"\n'
                 'model = "google/gemini-3.8-flash"\n',
                 encoding="utf-8",
@@ -142,7 +190,46 @@ class CaptchaSolutioneTests(unittest.TestCase):
 
         self.assertEqual(answer, "верный ответ")
         request = openai.return_value.chat.completions.create.call_args.kwargs
-        self.assertEqual(request["messages"][0]["content"][0]["text"], CaptchaSolutione.OCR_PROMPT)
+        self.assertEqual(
+            request["messages"][0]["content"][0]["text"],
+            "Текст только из конфигурации",
+        )
+
+    def test_retries_when_gemini_returns_invalid_response(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "ocr_prompt = Распознай текст\n"
+                "api_url = https://polza.ai/api/v1\n"
+                "model = google/gemini-3.8-flash\n",
+                encoding="utf-8",
+            )
+            image = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, buffer = cv2.imencode(".png", image)
+            self.assertTrue(succeeded)
+
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+            ):
+                invalid_response = MagicMock()
+                invalid_response.choices = [MagicMock(message=MagicMock(content="не JSON"))]
+                valid_response = MagicMock()
+                valid_response.choices = [
+                    MagicMock(message=MagicMock(content='{"text":"верный ответ"}'))
+                ]
+                openai.return_value.chat.completions.create.side_effect = [
+                    invalid_response,
+                    valid_response,
+                ]
+
+                answer = CaptchaSolutione(config_path).get_answer(
+                    CaptchaRequest("one", buffer.tobytes(), "Введите текст")
+                )
+
+        self.assertEqual(answer, "верный ответ")
+        self.assertEqual(openai.return_value.chat.completions.create.call_count, 2)
 
 
 class GeminiCaptchaFallbackTests(unittest.TestCase):
@@ -174,6 +261,8 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         self.assertEqual(source.get_answer.call_count, 5)
         self.assertEqual(input_field.fill.call_count, 5)
         self.assertEqual(events[-1].event, "gemini_fallback")
+        submitted = [event for event in events if event.event == "gemini_answer_submitted"]
+        self.assertEqual([event.answer for event in submitted], ["ответ"] * 5)
 
     def test_manual_fallback_does_not_call_gemini_after_five_attempts(self) -> None:
         with TemporaryDirectory() as directory:

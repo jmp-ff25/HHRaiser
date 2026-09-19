@@ -38,18 +38,13 @@ class CaptchaSolutione:
     """Распознавать текст CAPTCHA через совместимый с OpenAI API."""
 
     REQUEST_TIMEOUT_SECONDS = 20.0
-    OCR_PROMPT = (
-        "Точно перепиши русскую CAPTCHA. На ней ровно два слова строчными буквами. "
-        "Исходная CAPTCHA — источник истины, а варианты выпрямления служат только "
-        "подсказкой. Не исправляй странные слова по смыслу. Ответь только JSON без "
-        'Markdown: {"text":"первое второе","confidence":0.00}.'
-    )
+    RESPONSE_ATTEMPTS = 3
 
     def __init__(self, config_path: Path = Path("hh-config.ini")) -> None:
         """Создать источник из секции ``[captchasolution]`` INI-файла."""
         self.client: OpenAI | None = None
         self.model = ""
-        self.prompt = self.OCR_PROMPT
+        self.prompt = ""
         parser = configparser.RawConfigParser(interpolation=None)
         try:
             with config_path.open(encoding="utf-8") as stream:
@@ -70,11 +65,12 @@ class CaptchaSolutione:
             return
 
         api_key = os.environ.get("HHRAISER_POLZA_API_KEY", "").strip()
+        prompt = self._read_setting(parser, "ocr_prompt")
         api_url = self._read_setting(parser, "api_url")
         model = self._read_setting(parser, "model")
-        if not all((api_key, api_url, model)):
+        if not all((api_key, prompt, api_url, model)):
             LOGGER.error(
-                "Задайте HHRAISER_POLZA_API_KEY в .env, а URL и модель CAPTCHA в hh-config.ini.",
+                "Задайте HHRAISER_POLZA_API_KEY, ocr_prompt, api_url и model для CAPTCHA.",
                 extra=event_data(LogEvent.CAPTCHA),
             )
             return
@@ -85,6 +81,7 @@ class CaptchaSolutione:
             max_retries=0,
         )
         self.model = model
+        self.prompt = prompt
 
     @staticmethod
     def _read_setting(parser: configparser.RawConfigParser, option: str) -> str:
@@ -105,39 +102,48 @@ class CaptchaSolutione:
         if self.client is None:
             return None
 
-        try:
-            LOGGER.info(
-                "Распознаю CAPTCHA через %s.", self.model, extra=event_data(LogEvent.CAPTCHA)
+        LOGGER.info("Распознаю CAPTCHA через %s.", self.model, extra=event_data(LogEvent.CAPTCHA))
+        content: list[dict[str, Any]] = [{"type": "text", "text": self.prompt}]
+        for label, visual in [("Исходная CAPTCHA", image), *self._straighten_text(image)]:
+            content.extend(
+                [
+                    {"type": "text", "text": label},
+                    {"type": "image_url", "image_url": {"url": self._encode_png(visual)}},
+                ]
             )
-            content: list[dict[str, Any]] = [{"type": "text", "text": self.prompt}]
-            for label, visual in [("Исходная CAPTCHA", image), *self._straighten_text(image)]:
-                content.extend(
-                    [
-                        {"type": "text", "text": label},
-                        {"type": "image_url", "image_url": {"url": self._encode_png(visual)}},
-                    ]
+
+        for attempt in range(1, self.RESPONSE_ATTEMPTS + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": content}],
+                    temperature=0,
+                    max_tokens=1_024,
                 )
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": content}],
-                temperature=0,
-                max_tokens=1_024,
+                answer = self._parse_answer(response.choices[0].message.content or "")
+            except Exception as error:  # noqa: BLE001 — CAPTCHA остаётся необязательной автоматизацией.
+                LOGGER.warning(
+                    "Запрос Gemini завершился ошибкой %s: попытка %s из %s.",
+                    type(error).__name__,
+                    attempt,
+                    self.RESPONSE_ATTEMPTS,
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                continue
+            if answer is not None:
+                LOGGER.info(
+                    "Gemini вернул ответ CAPTCHA длиной %s символов.",
+                    len(answer),
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                return answer
+            LOGGER.warning(
+                "Gemini вернул некорректный ответ CAPTCHA: попытка %s из %s.",
+                attempt,
+                self.RESPONSE_ATTEMPTS,
+                extra=event_data(LogEvent.CAPTCHA),
             )
-            answer = self._parse_answer(response.choices[0].message.content or "")
-        except Exception as error:  # noqa: BLE001 — CAPTCHA остаётся необязательной автоматизацией.
-            LOGGER.error(
-                "Не удалось распознать CAPTCHA: %s", error, extra=event_data(LogEvent.CAPTCHA)
-            )
-            return None
-        if answer is None:
-            LOGGER.warning("Gemini не вернул текст CAPTCHA.", extra=event_data(LogEvent.CAPTCHA))
-            return None
-        LOGGER.info(
-            "Gemini вернул ответ CAPTCHA длиной %s символов.",
-            len(answer),
-            extra=event_data(LogEvent.CAPTCHA),
-        )
-        return answer
+        return None
 
     def _straighten_text(self, image: np.ndarray) -> list[tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

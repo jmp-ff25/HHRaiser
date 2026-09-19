@@ -19,10 +19,11 @@ class PendingCaptcha:
 
 @dataclass(frozen=True)
 class CaptchaAuditEvent:
-    """Обезличенная запись жизненного цикла CAPTCHA без изображения и ответа."""
+    """Запись жизненного цикла CAPTCHA без изображения и других секретов."""
 
     event: str
     attempt: int | None
+    answer: str | None
     occurred_at: datetime
 
 
@@ -172,16 +173,22 @@ class OwnerInterventionStore:
         for row in rows:
             self.finish(str(row[0]), "cancelled")
 
-    def record_captcha_event(self, event: str, *, attempt: int | None = None) -> None:
-        """Сохранить диагностическое событие CAPTCHA без секрета или текста ответа."""
+    def record_captcha_event(
+        self,
+        event: str,
+        *,
+        attempt: int | None = None,
+        answer: str | None = None,
+    ) -> None:
+        """Сохранить событие CAPTCHA и, при наличии, распознанный текст Gemini."""
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
-                INSERT INTO captcha_audit_events (event, attempt, occurred_at)
-                VALUES (?, ?, ?)
+                INSERT INTO captcha_audit_events (event, attempt, answer, occurred_at)
+                VALUES (?, ?, ?, ?)
                 """,
-                (event, attempt, datetime.now(UTC).isoformat()),
+                (event, attempt, answer, datetime.now(UTC).isoformat()),
             )
 
     def captcha_audit_events(self) -> list[CaptchaAuditEvent]:
@@ -189,13 +196,14 @@ class OwnerInterventionStore:
 
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                "SELECT event, attempt, occurred_at FROM captcha_audit_events ORDER BY id"
+                "SELECT event, attempt, answer, occurred_at FROM captcha_audit_events ORDER BY id"
             ).fetchall()
         return [
             CaptchaAuditEvent(
                 event=str(row[0]),
                 attempt=int(row[1]) if row[1] is not None else None,
-                occurred_at=datetime.fromisoformat(str(row[2])),
+                answer=str(row[2]) if row[2] is not None else None,
+                occurred_at=datetime.fromisoformat(str(row[3])),
             )
             for row in rows
         ]
@@ -230,10 +238,16 @@ class OwnerInterventionStore:
                     id INTEGER PRIMARY KEY,
                     event TEXT NOT NULL,
                     attempt INTEGER,
+                    answer TEXT,
                     occurred_at TEXT NOT NULL
                 );
                 """
             )
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(captcha_audit_events)")
+            }
+            if "answer" not in columns:
+                connection.execute("ALTER TABLE captcha_audit_events ADD COLUMN answer TEXT")
         self._restrict(self.database_path, 0o600)
 
     def _connect(self) -> sqlite3.Connection:
