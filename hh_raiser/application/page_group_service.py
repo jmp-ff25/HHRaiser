@@ -22,6 +22,16 @@ if TYPE_CHECKING:
     from playwright.sync_api import Page
 
 
+_RESPONSE_OUTCOME_MESSAGES = {
+    "sent": "отклик отправлен HHRaiser и подтверждён HH",
+    "already_sent": "новый отклик не отправлен: HH подтвердил существующий отклик",
+    "manual_required": "отклик не отправлен: требуется действие кандидата",
+    "unavailable": "отклик недоступен на стороне HH",
+    "unknown": "исход отклика не подтверждён, повтор не выполняется",
+    "error": "отклик не завершён из-за технической ошибки",
+}
+
+
 def run_vacancy_page_group(
     page: Page,
     policy: ActivityPolicy,
@@ -238,6 +248,17 @@ def run_vacancy_page_group(
         )
         results.append(response_result)
         record_terminal_response(history, response_result)
+        response_status = str(response_result.metadata.get("response_status") or "unknown")
+        LOGGER.info(
+            "Результат отклика на вакансию ID %s: %s.",
+            vacancy_id or "не распознан",
+            _response_outcome_message(response_status),
+            extra=event_data(
+                LogEvent.RESPONSE_MANUAL,
+                vacancy_id=vacancy_id,
+                response_status=response_status,
+            ),
+        )
 
     return _with_resume_review(
         page,
@@ -349,3 +370,9 @@ def _with_resume_review(
             )
         )
     return results
+
+
+def _response_outcome_message(response_status: str) -> str:
+    """Вернуть однозначное объяснение терминального исхода отклика для журнала."""
+
+    return _RESPONSE_OUTCOME_MESSAGES.get(response_status, "получен неизвестный исход")

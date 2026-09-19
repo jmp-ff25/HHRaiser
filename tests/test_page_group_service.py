@@ -7,7 +7,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from hh_raiser.activities.vacancy_viewer import VacancyViewOutcome
-from hh_raiser.application.page_group_service import run_vacancy_page_group
+from hh_raiser.application.page_group_service import (
+    _response_outcome_message,
+    run_vacancy_page_group,
+)
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.bot.statistics import read_instance_statistics
 from hh_raiser.domain.action import ActivityKind
@@ -27,6 +30,12 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
+    def test_response_outcome_message_explains_existing_hh_response(self) -> None:
+        message = _response_outcome_message("already_sent")
+
+        self.assertIn("не отправлен", message)
+        self.assertIn("существующий отклик", message)
+
     def test_resume_text_is_captured_before_opening_search_results(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")

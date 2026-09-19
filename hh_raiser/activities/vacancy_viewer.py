@@ -188,11 +188,10 @@ def view_vacancies(
                     page.wait_for_timeout(round(policy.scroll_pause_seconds * 1_000))
             page.wait_for_timeout(round(policy.vacancy_view_seconds * 1_000))
             LOGGER.info(
-                "Прокрутка вакансии %s из %s «%s»: %s, шагов — %s.",
+                "Просмотр вакансии %s из %s «%s»: выполнено прокруток — %s.",
                 shown_index,
                 shown_total,
                 vacancy_title,
-                "да" if scrolls_completed else "нет",
                 scrolls_completed,
                 extra=event_data(
                     LogEvent.VACANCY_VIEW,
