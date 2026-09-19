@@ -56,9 +56,11 @@ class ManualCaptchaGuard:
         *,
         headless: bool,
         answer_source: CaptchaAnswerSource | None = None,
+        audit_store: OwnerInterventionStore | None = None,
     ) -> None:
         self.headless = headless
         self.answer_source = answer_source
+        self.audit_store = audit_store
 
     def resolve_if_present(
         self,
@@ -69,6 +71,7 @@ class ManualCaptchaGuard:
         if not CaptchaGuard.is_present(page):
             return False
         should_stop = stop_requested or (lambda: False)
+        _record_captcha_event(self.audit_store, "detected")
         if _try_gemini_answers(
             page,
             self.answer_source,
@@ -78,9 +81,11 @@ class ManualCaptchaGuard:
                 if self.headless
                 else "перехожу к ручному вводу в Chromium"
             ),
+            audit_store=self.audit_store,
         ):
             return True
         if self.headless:
+            _record_captcha_event(self.audit_store, "manual_unavailable_headless")
             raise ManualCaptchaRequired(
                 "HH запросил CAPTCHA, но Chromium запущен без окна. "
                 "Запустите видимый режим или включите --telegram-captcha."
@@ -89,16 +94,18 @@ class ManualCaptchaGuard:
         LOGGER.warning(
             "HH запросил CAPTCHA; активность приостановлена. "
             "Завершите проверку в открытом окне Chromium.",
-            extra=event_data(LogEvent.AUTH),
+            extra=event_data(LogEvent.CAPTCHA),
         )
+        _record_captcha_event(self.audit_store, "manual_waiting_in_browser")
         while CaptchaGuard.is_present(page):
             if should_stop() or page.is_closed():
                 raise OwnerInterventionCancelled
             page.wait_for_timeout(_POLL_MILLISECONDS)
         LOGGER.info(
             "CAPTCHA подтверждена в Chromium; автоматическая работа продолжена.",
-            extra=event_data(LogEvent.AUTH),
+            extra=event_data(LogEvent.CAPTCHA),
         )
+        _record_captcha_event(self.audit_store, "manual_resolved_in_browser")
         return True
 
 
@@ -130,6 +137,7 @@ class CaptchaGuard:
             "HH запросил CAPTCHA; пробую автоматическое распознавание перед ручным режимом.",
             extra=event_data(LogEvent.CAPTCHA),
         )
+        _record_captcha_event(self.store, "detected")
         while self.is_present(page):
             if self._try_gemini_answers(page, should_stop):
                 return True
@@ -154,10 +162,12 @@ class CaptchaGuard:
                 screenshot_path,
                 "Введите текст с изображения. Регистр обычно не важен.",
             )
+            _record_captcha_event(self.store, "manual_requested")
             answer = self._wait_for_answer(page, challenge_id, should_stop)
             current_fingerprint = hashlib.sha256(image.screenshot(type="png")).digest()
             if current_fingerprint != fingerprint:
                 self.store.finish(challenge_id, "stale")
+                _record_captcha_event(self.store, "manual_stale")
                 LOGGER.info(
                     "Изображение CAPTCHA изменилось до получения ответа; "
                     "в Telegram будет отправлено новое.",
@@ -167,14 +177,17 @@ class CaptchaGuard:
 
             input_field.fill(answer)
             submit.click()
+            _record_captcha_event(self.store, "manual_answer_submitted")
             if self._wait_for_result(page, should_stop):
                 self.store.finish(challenge_id, "resolved")
+                _record_captcha_event(self.store, "manual_resolved")
                 LOGGER.info(
                     "Подтверждение владельца принято HH; автоматическая работа продолжена.",
                     extra=event_data(LogEvent.AUTH),
                 )
                 return True
             self.store.finish(challenge_id, "failed")
+            _record_captcha_event(self.store, "manual_rejected")
             LOGGER.warning(
                 "HH не принял введённый текст; новая CAPTCHA будет отправлена в Telegram.",
                 extra=event_data(LogEvent.AUTH),
@@ -189,6 +202,7 @@ class CaptchaGuard:
             stop_requested,
             fallback_message="отправляю её в Telegram",
             wait_for_result=self._wait_for_result,
+            audit_store=self.store,
         )
 
     @staticmethod
@@ -209,9 +223,11 @@ class CaptchaGuard:
         while True:
             if stop_requested() or page.is_closed():
                 self.store.finish(challenge_id, "cancelled")
+                _record_captcha_event(self.store, "manual_cancelled")
                 raise OwnerInterventionCancelled
             answer = self.store.take_answer(challenge_id)
             if answer is not None:
+                _record_captcha_event(self.store, "manual_answer_received")
                 return answer
             page.wait_for_timeout(_POLL_MILLISECONDS)
 
@@ -263,20 +279,24 @@ def _try_gemini_answers(
     *,
     fallback_message: str,
     wait_for_result: Callable[[Page, Callable[[], bool]], bool] | None = None,
+    audit_store: OwnerInterventionStore | None = None,
 ) -> bool:
     """Проверить до пяти ответов Gemini перед доступным ручным fallback."""
 
     if answer_source is None:
+        _record_captcha_event(audit_store, "gemini_disabled")
         return False
 
     for attempt in range(1, _GEMINI_ATTEMPTS + 1):
         if stop_requested() or page.is_closed() or not CaptchaGuard.is_present(page):
             return False
+        _record_captcha_event(audit_store, "gemini_attempt_started", attempt=attempt)
         image, input_field, submit = captcha_controls(page)
         try:
             for control in (image, input_field, submit):
                 control.wait_for(state="visible", timeout=_FORM_WAIT_MILLISECONDS)
         except PlaywrightTimeoutError:
+            _record_captcha_event(audit_store, "gemini_controls_unavailable", attempt=attempt)
             return False
 
         answer = _answer_from_source(
@@ -288,6 +308,7 @@ def _try_gemini_answers(
             ),
         )
         if answer is None:
+            _record_captcha_event(audit_store, "gemini_no_answer", attempt=attempt)
             continue
         LOGGER.info(
             "Пробую ответ Gemini: попытка %s из %s.",
@@ -297,8 +318,10 @@ def _try_gemini_answers(
         )
         input_field.fill(answer)
         submit.click()
+        _record_captcha_event(audit_store, "gemini_answer_submitted", attempt=attempt)
         result_waiter = wait_for_result or _wait_for_captcha_result
         if result_waiter(page, stop_requested):
+            _record_captcha_event(audit_store, "gemini_resolved", attempt=attempt)
             LOGGER.info("Ответ Gemini принят HH.", extra=event_data(LogEvent.CAPTCHA))
             return True
         LOGGER.warning(
@@ -307,6 +330,7 @@ def _try_gemini_answers(
             _GEMINI_ATTEMPTS,
             extra=event_data(LogEvent.CAPTCHA),
         )
+        _record_captcha_event(audit_store, "gemini_rejected", attempt=attempt)
 
     LOGGER.warning(
         "Gemini не решил CAPTCHA за %s попыток; %s.",
@@ -314,7 +338,22 @@ def _try_gemini_answers(
         fallback_message,
         extra=event_data(LogEvent.CAPTCHA),
     )
+    _record_captcha_event(audit_store, "gemini_fallback")
     return False
+
+
+def _record_captcha_event(
+    store: OwnerInterventionStore | None,
+    event: str,
+    *,
+    attempt: int | None = None,
+) -> None:
+    """Записать обезличенное диагностическое событие в SQLite и journalctl."""
+
+    if store is not None:
+        store.record_captcha_event(event, attempt=attempt)
+    suffix = f", попытка {attempt} из {_GEMINI_ATTEMPTS}" if attempt is not None else ""
+    LOGGER.info("CAPTCHA: %s%s.", event, suffix, extra=event_data(LogEvent.CAPTCHA))
 
 
 def _wait_for_captcha_result(page: Page, stop_requested: Callable[[], bool]) -> bool:

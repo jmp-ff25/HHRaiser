@@ -17,6 +17,15 @@ class PendingCaptcha:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class CaptchaAuditEvent:
+    """Обезличенная запись жизненного цикла CAPTCHA без изображения и ответа."""
+
+    event: str
+    attempt: int | None
+    occurred_at: datetime
+
+
 class OwnerInterventionStore:
     """Small cross-process mailbox shared by Playwright and the Telegram bot."""
 
@@ -163,6 +172,34 @@ class OwnerInterventionStore:
         for row in rows:
             self.finish(str(row[0]), "cancelled")
 
+    def record_captcha_event(self, event: str, *, attempt: int | None = None) -> None:
+        """Сохранить диагностическое событие CAPTCHA без секрета или текста ответа."""
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO captcha_audit_events (event, attempt, occurred_at)
+                VALUES (?, ?, ?)
+                """,
+                (event, attempt, datetime.now(UTC).isoformat()),
+            )
+
+    def captcha_audit_events(self) -> list[CaptchaAuditEvent]:
+        """Вернуть события CAPTCHA в хронологическом порядке для диагностики."""
+
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                "SELECT event, attempt, occurred_at FROM captcha_audit_events ORDER BY id"
+            ).fetchall()
+        return [
+            CaptchaAuditEvent(
+                event=str(row[0]),
+                attempt=int(row[1]) if row[1] is not None else None,
+                occurred_at=datetime.fromisoformat(str(row[2])),
+            )
+            for row in rows
+        ]
+
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
             connection.executescript(
@@ -189,6 +226,12 @@ class OwnerInterventionStore:
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_intervention_reply
                 ON owner_intervention_notifications(user_id, message_id);
+                CREATE TABLE IF NOT EXISTS captcha_audit_events (
+                    id INTEGER PRIMARY KEY,
+                    event TEXT NOT NULL,
+                    attempt INTEGER,
+                    occurred_at TEXT NOT NULL
+                );
                 """
             )
         self._restrict(self.database_path, 0o600)

@@ -468,14 +468,19 @@ def run_browser_context(
     maximize_browser_window(context, page, headless=args.headless)
     capture = NetworkCapture()
     page.on("response", capture.observe)
-    answer_source = CaptchaSolutione() if args.captcha_answer_source else None
+    intervention_store = OwnerInterventionStore(args.profile_dir.parent)
+    answer_source = CaptchaSolutione(args.config_file) if args.captcha_answer_source else None
     captcha_guard = (
         CaptchaGuard(
-            OwnerInterventionStore(args.profile_dir.parent),
+            intervention_store,
             answer_source=answer_source,
         )
         if args.telegram_captcha
-        else ManualCaptchaGuard(headless=args.headless, answer_source=answer_source)
+        else ManualCaptchaGuard(
+            headless=args.headless,
+            answer_source=answer_source,
+            audit_store=intervention_store,
+        )
     )
     try:
         login_if_needed(

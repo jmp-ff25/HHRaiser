@@ -59,6 +59,22 @@ class CaptchaIntegrationConfigTests(unittest.TestCase):
 
 
 class OwnerInterventionStoreTests(unittest.TestCase):
+    def test_persists_anonymized_captcha_audit_events(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = OwnerInterventionStore(Path(directory))
+            store.record_captcha_event("gemini_attempt_started", attempt=1)
+            store.record_captcha_event("gemini_resolved", attempt=1)
+
+            events = store.captcha_audit_events()
+
+        self.assertEqual(
+            [(item.event, item.attempt) for item in events],
+            [
+                ("gemini_attempt_started", 1),
+                ("gemini_resolved", 1),
+            ],
+        )
+
     def test_delivers_reply_only_to_matching_pending_challenge(self) -> None:
         with TemporaryDirectory() as directory:
             store = OwnerInterventionStore(Path(directory))
@@ -150,9 +166,11 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
                 ),
             ):
                 self.assertFalse(guard._try_gemini_answers(page, lambda: False))
+            events = guard.store.captcha_audit_events()
 
         self.assertEqual(source.get_answer.call_count, 5)
         self.assertEqual(input_field.fill.call_count, 5)
+        self.assertEqual(events[-1].event, "gemini_fallback")
 
     def test_manual_fallback_does_not_call_gemini_after_five_attempts(self) -> None:
         with TemporaryDirectory() as directory:
