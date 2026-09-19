@@ -4,6 +4,7 @@ import unittest
 
 from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
+    _timeout_detail,
     build_marked_description,
     description_matches_marker_base,
     remove_one_trailing_period,
@@ -48,3 +49,10 @@ class ResumeIndexRefresherTests(unittest.TestCase):
 
     def test_targets_experience_edit_buttons_not_nested_icons(self) -> None:
         self.assertEqual(EXPERIENCE_EDIT_BUTTON, 'button[data-qa^="edit-experience-button-"]')
+
+    def test_timeout_detail_identifies_unconfirmed_stage(self) -> None:
+        self.assertEqual(
+            _timeout_detail("ожидание кнопок редактирования опыта"),
+            "Интерфейс не подтвердил этап «ожидание кнопок редактирования опыта»; "
+            "сохранение автоматически не повторяется.",
+        )

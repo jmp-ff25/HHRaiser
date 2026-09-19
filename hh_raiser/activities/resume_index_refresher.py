@@ -149,6 +149,10 @@ def _write_next_target(profile_dir: Path, target_index: int) -> None:
     )
 
 
+def _timeout_detail(stage: str) -> str:
+    return f"Интерфейс не подтвердил этап «{stage}»; сохранение автоматически не повторяется."
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -159,12 +163,14 @@ def refresh_resume_index(
     attempted_at = datetime.now(MOSCOW)
     write_resume_refresh_attempt(profile_dir, attempted_at)
     marker = _read_marker(profile_dir)
+    stage = "загрузка страницы резюме"
     try:
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
         if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
             page.goto(PROFILE_URL, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+        stage = "ожидание кнопок редактирования опыта"
         edit_buttons.first.wait_for(state="visible", timeout=15_000)
         button_count = edit_buttons.count()
         if not button_count:
@@ -185,9 +191,12 @@ def refresh_resume_index(
                 detail="Состав опыта изменился; сохранённый маркер сброшен без редактирования.",
             )
 
+        stage = "открытие формы редактирования опыта"
         edit_buttons.nth(target_index).click()
         description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
+        stage = "ожидание поля описания опыта"
         description.wait_for(state="visible", timeout=15_000)
+        stage = "чтение описания опыта"
         current_value = description.input_value()
         if not current_value.strip():
             return ActivityResult(
@@ -244,12 +253,17 @@ def refresh_resume_index(
             _write_marker(profile_dir, marker)
             operation = "added"
 
+        stage = "внесение контрольной точки"
         description.fill(updated_value)
+        stage = "сохранение резюме"
         page.locator(PROFILE_SAVE_BUTTON).click()
+        stage = "закрытие формы после сохранения"
         description.wait_for(state="hidden", timeout=15_000)
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+        stage = "повторное открытие сохранённого опыта"
         edit_buttons.nth(target_index).click()
         saved_description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
+        stage = "проверка сохранённого описания"
         saved_description.wait_for(state="visible", timeout=15_000)
         if _normalized_fingerprint(saved_description.input_value()) != _normalized_fingerprint(
             updated_value
@@ -291,7 +305,7 @@ def refresh_resume_index(
         return ActivityResult(
             action=ActivityKind.REFRESH_RESUME_INDEX,
             status=ActivityStatus.UNKNOWN,
-            detail="Результат сохранения не подтверждён интерфейсом; автоматического повтора нет.",
+            detail=_timeout_detail(stage),
         )
     except PlaywrightError as error:
         if is_closed_playwright_error(error):
