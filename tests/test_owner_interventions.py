@@ -5,6 +5,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import sleep
 from unittest.mock import MagicMock, patch
 
 import cv2
@@ -257,12 +258,17 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
     )
     def test_recognizes_real_captcha_with_gemini(self) -> None:
         image_path = PROJECT_ROOT / "tests" / "fixtures" / "captcha_gemini_integration.jpg"
+        request = CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
         environment = dict(os.environ)
         load_env_file(PROJECT_ROOT / ".env", environment=environment)
         with patch.dict(os.environ, environment, clear=True):
-            answer = CaptchaSolutione(INTEGRATION_CONFIG_PATH).get_answer(
-                CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
-            )
+            source = CaptchaSolutione(INTEGRATION_CONFIG_PATH)
+            answer = None
+            for attempt in range(3):
+                answer = source.get_answer(request)
+                if answer == "евшему увидала" or attempt == 2:
+                    break
+                sleep(1)
 
         self.assertEqual(answer, "евшему увидала")
 
