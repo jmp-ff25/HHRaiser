@@ -308,11 +308,9 @@ def _load_next_nonempty_group(
                 },
             )
         )
-        reservation = history.reserve_candidates(
+        reservation = history.discover_candidates(
             vacancy_urls,
             search_query=request.query,
-            limit=policy.unique_vacancy_limit or len(vacancy_urls),
-            revisit_after_days=policy.revisit_after_days,
         )
         history.record_search_page(
             search_query=request.query,

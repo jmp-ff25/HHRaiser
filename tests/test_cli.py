@@ -142,10 +142,6 @@ class CliTests(unittest.TestCase):
                 "8.5",
                 "--search-pages-per-cycle",
                 "40",
-                "--unique-vacancy-limit",
-                "500",
-                "--revisit-after-days",
-                "30",
                 "--no-vacancy-matching",
                 "--match-threshold",
                 "68",
@@ -164,8 +160,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.vacancy_scrolls, 3)
         self.assertEqual(args.vacancy_view_seconds, 8.5)
         self.assertEqual(args.search_pages_per_cycle, 40)
-        self.assertEqual(args.unique_vacancy_limit, 500)
-        self.assertEqual(args.revisit_after_days, 30)
         self.assertFalse(args.vacancy_matching)
         self.assertEqual(args.match_threshold, 68)
         self.assertTrue(args.auto_respond)

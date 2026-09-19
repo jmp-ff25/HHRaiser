@@ -213,8 +213,6 @@ def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
     return ActivityPolicy(
         vacancies_per_cycle=args.vacancies_per_cycle,
         search_pages_per_cycle=args.search_pages_per_cycle,
-        unique_vacancy_limit=args.unique_vacancy_limit,
-        revisit_after_days=args.revisit_after_days,
         search_scrolls=args.search_scrolls,
         vacancy_scrolls=args.vacancy_scrolls,
         scroll_pause_seconds=args.scroll_pause_seconds,
@@ -371,18 +369,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=lambda value: bounded_positive_int(value, maximum=200),
         default=None,
         help="Максимум страниц выдачи, проверяемых для набора уникальных вакансий.",
-    )
-    parser.add_argument(
-        "--unique-vacancy-limit",
-        type=lambda value: bounded_non_negative_int(value, maximum=100_000),
-        default=None,
-        help="Размер цикла уникальных просмотров; 0 отключает лимит.",
-    )
-    parser.add_argument(
-        "--revisit-after-days",
-        type=lambda value: bounded_non_negative_int(value, maximum=3_650),
-        default=None,
-        help="Минимальный возраст просмотра перед повторным выбором вакансии.",
     )
     parser.add_argument(
         "--reset-vacancy-history",
@@ -634,8 +620,6 @@ def main(argv: list[str] | None = None) -> int:
     args.activity_interval_seconds = settings.activity_interval_seconds
     args.search_queries = settings.search_queries
     args.search_pages_per_cycle = settings.search_pages_per_cycle
-    args.unique_vacancy_limit = settings.unique_vacancy_limit
-    args.revisit_after_days = settings.revisit_after_days
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
     args.auto_respond = settings.auto_respond

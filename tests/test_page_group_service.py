@@ -30,6 +30,48 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
+    def test_groups_every_vacancy_even_when_history_already_has_views(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            urls = [f"https://hh.ru/vacancy/{index}" for index in range(1, 11)]
+            for url in urls:
+                history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+                history.mark_viewed(url)
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=5,
+                auto_respond=False,
+                vacancy_matching=False,
+            )
+
+            def view_one(_page, selected_urls, _policy, **_options):
+                url = selected_urls[0]
+                return [
+                    VacancyViewOutcome(
+                        url=url,
+                        result=result(ActivityKind.VIEW_VACANCY, vacancy_title="Python developer"),
+                    )
+                ]
+
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), urls, 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    side_effect=view_one,
+                ) as view,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
+
+            self.assertEqual(view.call_count, 10)
+
     def test_starts_new_history_generation_after_exhausted_cycle(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")
@@ -45,10 +87,22 @@ class PageGroupServiceTests(unittest.TestCase):
                     return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
                 ) as search,
                 patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    return_value=[
+                        VacancyViewOutcome(
+                            url=url,
+                            result=result(
+                                ActivityKind.VIEW_VACANCY, vacancy_title="Python developer"
+                            ),
+                        )
+                    ],
+                ),
+                patch(
                     "hh_raiser.application.page_group_service.review_resume",
                     return_value=result(ActivityKind.REVIEW_RESUME),
                 ),
             ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
                 run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
 
             self.assertEqual(history.generation, 2)
@@ -248,7 +302,6 @@ class PageGroupServiceTests(unittest.TestCase):
             traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
             policy = ActivityPolicy(
                 vacancies_per_cycle=1,
-                unique_vacancy_limit=0,
                 vacancy_matching=False,
             )
             viewed = VacancyViewOutcome(

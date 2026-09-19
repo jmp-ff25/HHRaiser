@@ -267,6 +267,37 @@ class VacancyHistory:
             eligible_count=len(candidate_ids),
         )
 
+    def discover_candidates(
+        self,
+        urls: list[str],
+        *,
+        search_query: str,
+    ) -> VacancyReservation:
+        """Сохранить вакансии выдачи и вернуть все корректные URL для просмотра."""
+
+        id_to_url = {
+            vacancy_id: url for url in urls if (vacancy_id := vacancy_id_from_url(url)) is not None
+        }
+        if not id_to_url:
+            return VacancyReservation((), 0, 0, 0)
+
+        now_text = datetime.now(MOSCOW).isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            placeholders = ",".join("?" for _ in id_to_url)
+            existing_count_row = connection.execute(
+                f"SELECT COUNT(*) FROM vacancies WHERE vacancy_id IN ({placeholders})",
+                tuple(id_to_url),
+            ).fetchone()
+            existing_count = int(existing_count_row[0]) if existing_count_row else 0
+            self._record_discovered(connection, id_to_url, search_query, now_text)
+        return VacancyReservation(
+            urls=tuple(id_to_url.values()),
+            discovered_count=len(id_to_url),
+            newly_discovered_count=len(id_to_url) - existing_count,
+            eligible_count=len(id_to_url),
+        )
+
     def search_coverage(
         self,
         queries: tuple[str, ...],

@@ -13,8 +13,6 @@ DEFAULT_CONFIG_PATH = Path("hh-config.ini")
 DEFAULT_VACANCIES_PER_GROUP = 5
 DEFAULT_ACTIVITY_INTERVAL_SECONDS = 300
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
-DEFAULT_UNIQUE_VACANCY_LIMIT = 1_000
-DEFAULT_REVISIT_AFTER_DAYS = 14
 DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
 DEFAULT_AUTO_RESPOND = True
@@ -28,8 +26,6 @@ class FileConfig:
     vacancies_per_group: int | None = None
     activity_interval_seconds: int | None = None
     search_pages_per_cycle: int | None = None
-    unique_vacancy_limit: int | None = None
-    revisit_after_days: int | None = None
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
     auto_respond: bool | None = None
@@ -45,8 +41,6 @@ class RuntimeSettings:
     vacancies_per_group: int
     activity_interval_seconds: int
     search_pages_per_cycle: int
-    unique_vacancy_limit: int
-    revisit_after_days: int
     vacancy_matching: bool
     match_threshold: int
     auto_respond: bool
@@ -97,8 +91,6 @@ def read_file_config(path: Path) -> FileConfig:
             "activity", "activity_interval_seconds", fallback=None
         )
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
-        unique_vacancy_limit = parser.getint("activity", "unique_vacancy_limit", fallback=None)
-        revisit_after_days = parser.getint("activity", "revisit_after_days", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
@@ -128,8 +120,6 @@ def read_file_config(path: Path) -> FileConfig:
         vacancies_per_group=vacancies_per_group,
         activity_interval_seconds=activity_interval_seconds,
         search_pages_per_cycle=search_pages_per_cycle,
-        unique_vacancy_limit=unique_vacancy_limit,
-        revisit_after_days=revisit_after_days,
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
         auto_respond=auto_respond,
@@ -165,16 +155,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "search_pages_per_cycle", None)
         if getattr(args, "search_pages_per_cycle", None) is not None
         else file_config.search_pages_per_cycle
-    )
-    unique_vacancy_limit = (
-        getattr(args, "unique_vacancy_limit", None)
-        if getattr(args, "unique_vacancy_limit", None) is not None
-        else file_config.unique_vacancy_limit
-    )
-    revisit_after_days = (
-        getattr(args, "revisit_after_days", None)
-        if getattr(args, "revisit_after_days", None) is not None
-        else file_config.revisit_after_days
     )
     vacancy_matching = (
         getattr(args, "vacancy_matching", None)
@@ -217,12 +197,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         if search_pages_per_cycle is not None
         else DEFAULT_SEARCH_PAGES_PER_CYCLE
     )
-    resolved_unique_limit = (
-        unique_vacancy_limit if unique_vacancy_limit is not None else DEFAULT_UNIQUE_VACANCY_LIMIT
-    )
-    resolved_revisit_days = (
-        revisit_after_days if revisit_after_days is not None else DEFAULT_REVISIT_AFTER_DAYS
-    )
     return RuntimeSettings(
         resume_title=resume_title,
         search_queries=search_queries,
@@ -247,18 +221,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             resolved_search_pages,
             minimum=1,
             maximum=200,
-        ),
-        unique_vacancy_limit=_validate_range(
-            "activity.unique_vacancy_limit",
-            resolved_unique_limit,
-            minimum=0,
-            maximum=100_000,
-        ),
-        revisit_after_days=_validate_range(
-            "activity.revisit_after_days",
-            resolved_revisit_days,
-            minimum=0,
-            maximum=3_650,
         ),
         vacancy_matching=(
             vacancy_matching if vacancy_matching is not None else DEFAULT_VACANCY_MATCHING
