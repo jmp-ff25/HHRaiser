@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from hh_raiser.logging_config import LOGGER, LogEvent, configure_logging, event_data
 
@@ -49,6 +50,14 @@ class LoggingTests(unittest.TestCase):
         self.assertNotIn("\033[", output)
         self.assertIn("INFO tests/test_logging.py:", output)
         self.assertTrue(output.endswith(" Открыта вакансия\n"))
+
+    def test_environment_enables_colour_for_systemd_stream(self) -> None:
+        stream = StringIO()
+        with patch.dict("os.environ", {"HHRAISER_LOG_COLOR": "true"}, clear=False):
+            configure_logging(stream=stream)
+            LOGGER.info("Системная служба", extra=event_data(LogEvent.SYSTEM))
+
+        self.assertIn("\033[", stream.getvalue())
 
     def test_every_user_facing_event_category_colours_its_message(self) -> None:
         for event in LogEvent:

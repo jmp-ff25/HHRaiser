@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=@PROJECT_DIR@
 Environment=PYTHONUNBUFFERED=1
+Environment=HHRAISER_LOG_COLOR=true
 ExecStart=@PROJECT_DIR@/.venv/bin/hh-resume-raiser --headless --full-activity --resume-index-refresh --telegram-captcha --config-file state/%i/hh-config.ini --profile-dir state/%i/browser-profile
 KillSignal=SIGINT
 TimeoutStopSec=60

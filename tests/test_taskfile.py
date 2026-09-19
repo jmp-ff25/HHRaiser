@@ -51,6 +51,7 @@ class TaskfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("--telegram-captcha", service)
+        self.assertIn("Environment=HHRAISER_LOG_COLOR=true", service)
         self.assertIn("--config-file state/%i/hh-config.ini", service)
         self.assertIn("--profile-dir state/%i/browser-profile", service)
 
@@ -60,3 +61,4 @@ class TaskfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("hh-resume-raiser-bot --systemd-mode system", service)
+        self.assertIn("Environment=HHRAISER_LOG_COLOR=true", service)

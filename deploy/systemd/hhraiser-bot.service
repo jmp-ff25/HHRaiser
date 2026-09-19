@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=@PROJECT_DIR@
 EnvironmentFile=@PROJECT_DIR@/.env
+Environment=HHRAISER_LOG_COLOR=true
 # Параметр ниже имеет приоритет над HHRAISER_BOT_USER_SYSTEMD в .env.
 ExecStart=@PROJECT_DIR@/.venv/bin/hh-resume-raiser-bot --systemd-mode system
 Restart=on-failure

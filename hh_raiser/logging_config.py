@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from enum import StrEnum
 from pathlib import Path
@@ -123,7 +124,7 @@ class RichEventHandler(logging.Handler):
 
 def configure_logging(*, stream: TextIO | None = None, use_color: bool | None = None) -> None:
     target_stream = stream or sys.stderr
-    color_enabled = target_stream.isatty() if use_color is None else use_color
+    color_enabled = _color_enabled(target_stream) if use_color is None else use_color
     handler = RichEventHandler(target_stream, use_color=color_enabled)
     for current_handler in LOGGER.handlers:
         current_handler.close()
@@ -131,6 +132,17 @@ def configure_logging(*, stream: TextIO | None = None, use_color: bool | None = 
     LOGGER.addHandler(handler)
     LOGGER.setLevel(logging.INFO)
     LOGGER.propagate = False
+
+
+def _color_enabled(stream: TextIO) -> bool:
+    """Учитывать явный цвет для systemd, где stderr не является TTY."""
+
+    configured = os.environ.get("HHRAISER_LOG_COLOR", "").strip().casefold()
+    if configured in {"1", "true", "yes", "on"}:
+        return True
+    if configured in {"0", "false", "no", "off"}:
+        return False
+    return stream.isatty()
 
 
 def show_log_color_demo() -> None:
