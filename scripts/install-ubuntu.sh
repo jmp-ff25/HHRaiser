@@ -20,6 +20,14 @@ if ! command -v uv >/dev/null 2>&1; then
   ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv
 fi
 
+if ! command -v task >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y curl ca-certificates
+  curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
+  apt-get update
+  apt-get install -y task
+fi
+
 cd "$PROJECT_DIR"
 uv sync --locked --extra dev
 uv run playwright install-deps chromium
@@ -33,4 +41,4 @@ sed "s|@PROJECT_DIR@|$escaped_project_dir|g" deploy/systemd/hhraiser@.service \
 sed "s|@PROJECT_DIR@|$escaped_project_dir|g" deploy/systemd/hhraiser-bot.service \
   > /etc/systemd/system/hhraiser-bot.service
 systemctl daemon-reload
-echo "Установка завершена. Запустите службы: uv run hhraiser start"
+echo "Установка завершена. Запустите службы: task server-start"
