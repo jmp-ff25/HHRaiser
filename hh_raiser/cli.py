@@ -247,7 +247,10 @@ def build_activity_orchestrator(
         ),
         captcha_guard=captcha_guard,
         stop_requested=stop_requested,
-        traversal=VacancyTraversal(queries=args.search_queries),
+        traversal=VacancyTraversal(
+            queries=args.search_queries,
+            page_limit=policy.search_pages_per_cycle,
+        ),
     )
 
 

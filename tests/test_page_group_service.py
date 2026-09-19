@@ -30,6 +30,55 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
+    def test_starts_new_history_generation_after_exhausted_cycle(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            url = "https://hh.ru/vacancy/1"
+            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
+            history.mark_viewed(url)
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(reset_on_exhaustion=True, vacancy_matching=False)
+
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ) as search,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
+
+            self.assertEqual(history.generation, 2)
+            self.assertEqual(search.call_count, 1)
+
+    def test_stops_after_exhausted_cycle_when_reset_disabled(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(reset_on_exhaustion=False, vacancy_matching=False)
+
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [], 1),
+                ) as search,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
+                results = run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python developer"
+                )
+
+            self.assertEqual(history.generation, 1)
+            self.assertEqual(search.call_count, 1)
+            self.assertEqual(results, [])
+
     def test_response_outcome_message_explains_existing_hh_response(self) -> None:
         message = _response_outcome_message("already_sent")
 

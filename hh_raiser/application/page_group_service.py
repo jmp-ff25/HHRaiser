@@ -44,6 +44,9 @@ def run_vacancy_page_group(
 ) -> list[ActivityResult]:
     """Обработать одну группу, сохранив текущие запрос и позицию в пагинации."""
 
+    if traversal.is_exhausted:
+        return []
+
     results: list[ActivityResult] = []
     resume_text = traversal.resume_text
     if policy.vacancy_matching and not resume_text:
@@ -281,6 +284,11 @@ def _load_next_nonempty_group(
     initial_cycle = traversal.cycle
     while traversal.cycle == initial_cycle:
         request = traversal.next_search()
+        if request is None:
+            return None
+        if request.cycle != initial_cycle:
+            _finish_search_cycle(policy, traversal, history)
+            return None
         search_options: dict[str, object] = {
             "query": request.query,
             "search_page": request.page,
@@ -324,19 +332,25 @@ def _load_next_nonempty_group(
             group_size=max(policy.vacancies_per_cycle, 1),
         )
         LOGGER.info(
-            "Поиск «%s»: страница %s из %s; найдено %s вакансий, "
-            "порядок перемешан, сформировано групп — %s.",
+            "Поиск «%s»: страница %s из %s; найдено вакансий — %s, новых — %s, "
+            "доступны для обработки — %s, выбраны — %s, сформировано групп — %s.",
             request.query,
             request.page + 1,
-            page_count,
+            traversal.known_page_count,
             len(vacancy_urls),
+            reservation.newly_discovered_count,
+            reservation.eligible_count,
+            len(reservation.urls),
             group_count,
             extra=event_data(
                 LogEvent.SEARCH,
                 search_query=request.query,
                 search_page=request.page,
-                search_page_count=page_count,
+                search_page_count=traversal.known_page_count,
                 discovered_count=len(vacancy_urls),
+                newly_discovered_count=reservation.newly_discovered_count,
+                eligible_count=reservation.eligible_count,
+                selected_count=len(reservation.urls),
                 group_count=group_count,
                 search_cycle=request.cycle,
             ),
@@ -344,12 +358,37 @@ def _load_next_nonempty_group(
         group = traversal.pop_group()
         if group is not None:
             return group
-    LOGGER.info(
-        "Все поисковые запросы и их страницы пройдены; начинается обход № %s.",
-        traversal.cycle,
-        extra=event_data(LogEvent.SEARCH, search_cycle=traversal.cycle),
-    )
     return None
+
+
+def _finish_search_cycle(
+    policy: ActivityPolicy,
+    traversal: VacancyTraversal,
+    history: VacancyHistory,
+) -> None:
+    """Закончить полный обход и применить правило автосброса истории."""
+
+    if not policy.reset_on_exhaustion:
+        traversal.stop()
+        LOGGER.info(
+            "Все поисковые запросы и их страницы пройдены; новый обход отключён "
+            "настройкой activity.reset_on_exhaustion.",
+            extra=event_data(LogEvent.SEARCH, search_cycle=traversal.cycle),
+        )
+        return
+
+    generation = history.advance_generation()
+    LOGGER.info(
+        "Все поисковые запросы и их страницы пройдены; начинается обход № %s "
+        "с новым поколением истории № %s.",
+        traversal.cycle,
+        generation,
+        extra=event_data(
+            LogEvent.SEARCH,
+            search_cycle=traversal.cycle,
+            vacancy_generation=generation,
+        ),
+    )
 
 
 def _with_resume_review(

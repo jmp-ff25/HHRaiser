@@ -49,6 +49,22 @@ class VacancyTraversalTests(unittest.TestCase):
         self.assertEqual(set(python_pages), {1, 2, 3})
         self.assertEqual((backend.query, backend.page), ("Backend", 0))
 
+    def test_limits_pages_for_each_query_in_cycle(self) -> None:
+        traversal = VacancyTraversal(("Python",), page_limit=2, randomizer=random.Random(7))
+
+        first = traversal.next_search()
+        assert first is not None
+        traversal.observe_search(first, page_count=4, urls=[], group_size=5)
+        second = traversal.next_search()
+        assert second is not None
+        traversal.observe_search(second, page_count=4, urls=[], group_size=5)
+        repeated = traversal.next_search()
+
+        self.assertEqual((first.page, second.page), (0, 1))
+        self.assertIsNotNone(repeated)
+        assert repeated is not None
+        self.assertEqual((repeated.page, repeated.cycle), (0, 2))
+
     def test_starts_a_new_cycle_after_all_queries(self) -> None:
         traversal = VacancyTraversal(("Python", "Backend"), randomizer=random.Random(1))
         first = traversal.next_search()

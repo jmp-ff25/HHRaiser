@@ -32,6 +32,7 @@ class VacancyTraversal:
     """Циклически обойти запросы и страницы в перемешанном порядке."""
 
     queries: tuple[str, ...]
+    page_limit: int = 200
     randomizer: random.Random = field(default_factory=random.Random)
     resume_text: str = ""
     _query_index: int = 0
@@ -40,10 +41,13 @@ class VacancyTraversal:
     _seen_pages: set[int] = field(default_factory=set)
     _page_bag: list[int] = field(default_factory=list)
     _groups: list[VacancyGroup] = field(default_factory=list)
+    _exhausted: bool = False
 
     def __post_init__(self) -> None:
         if not self.queries:
             raise ValueError("at least one search query is required")
+        if self.page_limit <= 0:
+            raise ValueError("page_limit must be positive")
 
     @property
     def cycle(self) -> int:
@@ -53,10 +57,29 @@ class VacancyTraversal:
     def current_query(self) -> str:
         return self.queries[self._query_index]
 
+    @property
+    def known_page_count(self) -> int:
+        """Вернуть число страниц текущего запроса с учётом пользовательского лимита."""
+
+        return self._known_page_count or 1
+
+    @property
+    def is_exhausted(self) -> bool:
+        """Сообщить, что обход остановлен после полного цикла без автосброса."""
+
+        return self._exhausted
+
+    def stop(self) -> None:
+        """Не начинать следующий цикл выдачи."""
+
+        self._exhausted = True
+
     def pop_group(self) -> VacancyGroup | None:
         return self._groups.pop(0) if self._groups else None
 
-    def next_search(self) -> SearchRequest:
+    def next_search(self) -> SearchRequest | None:
+        if self._exhausted:
+            return None
         if self._groups:
             raise RuntimeError("finish queued vacancy groups before selecting another page")
         if self._known_page_count is None:
@@ -81,7 +104,10 @@ class VacancyTraversal:
         if group_size <= 0:
             raise ValueError("group_size must be positive")
 
-        normalized_page_count = max(int(page_count), request.page + 1, 1)
+        normalized_page_count = min(
+            max(int(page_count), request.page + 1, 1),
+            self.page_limit,
+        )
         self._seen_pages.add(request.page)
         self._known_page_count = max(self._known_page_count or 1, normalized_page_count)
         missing_pages = [
