@@ -73,7 +73,7 @@ class VacancyTraversal:
         if not self._page_bag:
             self._advance_query()
             return SearchRequest(self.current_query, 0, self._cycle)
-        return SearchRequest(self.current_query, self._page_bag.pop(), self._cycle)
+        return SearchRequest(self.current_query, self._page_bag.pop(0), self._cycle)
 
     def observe_search(
         self,
@@ -101,7 +101,6 @@ class VacancyTraversal:
             for page in range(self._known_page_count)
             if page not in self._seen_pages and page not in self._page_bag
         ]
-        self.randomizer.shuffle(missing_pages)
         self._page_bag.extend(missing_pages)
 
         shuffled_urls = list(dict.fromkeys(urls))

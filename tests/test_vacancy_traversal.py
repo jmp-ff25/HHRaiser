@@ -28,7 +28,7 @@ class VacancyTraversalTests(unittest.TestCase):
         self.assertEqual([len(first.urls), len(second.urls)], [5, 4])
         self.assertEqual(set(first.urls + second.urls), set(urls))
 
-    def test_finishes_shuffled_pages_before_advancing_to_next_query(self) -> None:
+    def test_finishes_pages_in_order_before_advancing_to_next_query(self) -> None:
         traversal = VacancyTraversal(
             ("Python", "Backend"),
             randomizer=random.Random(7),
@@ -46,7 +46,7 @@ class VacancyTraversalTests(unittest.TestCase):
 
         backend = traversal.next_search()
 
-        self.assertEqual(set(python_pages), {1, 2, 3})
+        self.assertEqual(python_pages, [1, 2, 3])
         self.assertEqual((backend.query, backend.page), ("Backend", 0))
 
     def test_limits_pages_for_each_query_in_cycle(self) -> None:
