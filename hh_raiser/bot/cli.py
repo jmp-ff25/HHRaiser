@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 from pathlib import Path
 
 from hh_raiser.bot.app import run_telegram_bot
@@ -26,6 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ENV_PATH,
         help="Локальный .env; внешние переменные имеют приоритет.",
     )
+    parser.add_argument(
+        "--systemd-mode",
+        choices=("user", "system"),
+        help="Явно выбрать пользовательские или системные службы systemd.",
+    )
     return parser
 
 
@@ -33,12 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging()
+    environment = dict(os.environ)
     try:
-        load_env_file(args.env_file.expanduser())
+        load_env_file(args.env_file.expanduser(), environment=environment)
     except EnvFileError as error:
         parser.error(str(error))
+    if args.systemd_mode is not None:
+        environment["HHRAISER_BOT_USER_SYSTEMD"] = str(args.systemd_mode == "user").lower()
     try:
-        settings = load_bot_settings(args.config_file.expanduser().resolve())
+        settings = load_bot_settings(
+            args.config_file.expanduser().resolve(), environment=environment
+        )
     except BotConfigError as error:
         parser.error(str(error))
     try:

@@ -53,3 +53,10 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("--telegram-captcha", service)
         self.assertIn("--config-file state/%i/hh-config.ini", service)
         self.assertIn("--profile-dir state/%i/browser-profile", service)
+
+    def test_server_bot_uses_system_wide_systemd(self) -> None:
+        service = (
+            Path(__file__).parents[1] / "deploy" / "systemd" / "hhraiser-bot.service"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("hh-resume-raiser-bot --systemd-mode system", service)
