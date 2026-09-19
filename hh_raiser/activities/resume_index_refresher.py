@@ -153,6 +153,16 @@ def _timeout_detail(stage: str) -> str:
     return f"Интерфейс не подтвердил этап «{stage}»; сохранение автоматически не повторяется."
 
 
+def _edit_button_state(page: Page) -> str:
+    buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+    try:
+        count = buttons.count()
+        visible = sum(buttons.nth(index).is_visible(timeout=0) for index in range(count))
+    except PlaywrightError:
+        return "состояние кнопок недоступно"
+    return f"кнопок в DOM: {count}; видимых: {visible}"
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -302,10 +312,13 @@ def refresh_resume_index(
             },
         )
     except PlaywrightTimeoutError:
+        detail = _timeout_detail(stage)
+        if stage == "ожидание кнопок редактирования опыта":
+            detail = f"{detail} {_edit_button_state(page)}."
         return ActivityResult(
             action=ActivityKind.REFRESH_RESUME_INDEX,
             status=ActivityStatus.UNKNOWN,
-            detail=_timeout_detail(stage),
+            detail=detail,
         )
     except PlaywrightError as error:
         if is_closed_playwright_error(error):

@@ -4,6 +4,7 @@ import unittest
 
 from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
+    _edit_button_state,
     _timeout_detail,
     build_marked_description,
     description_matches_marker_base,
@@ -56,3 +57,22 @@ class ResumeIndexRefresherTests(unittest.TestCase):
             "Интерфейс не подтвердил этап «ожидание кнопок редактирования опыта»; "
             "сохранение автоматически не повторяется.",
         )
+
+    def test_edit_button_state_reports_dom_and_visible_counts(self) -> None:
+        class Locator:
+            def count(self) -> int:
+                return 2
+
+            def nth(self, index: int) -> Locator:
+                self.index = index
+                return self
+
+            def is_visible(self, *, timeout: int) -> bool:
+                return self.index == 0 and timeout == 0
+
+        class Page:
+            def locator(self, selector: str) -> Locator:
+                self.selector = selector
+                return Locator()
+
+        self.assertEqual(_edit_button_state(Page()), "кнопок в DOM: 2; видимых: 1")
