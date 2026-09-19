@@ -28,7 +28,6 @@ DEFAULT_INTEGRATION_CONFIG_PATH = PROJECT_ROOT / "state" / "main" / "hh-config.i
 INTEGRATION_CONFIG_PATH = Path(
     os.environ.get("HHRAISER_CONFIG_FILE", DEFAULT_INTEGRATION_CONFIG_PATH)
 )
-load_env_file(PROJECT_ROOT / ".env")
 
 
 def _captcha_integration_enabled(config_path: Path) -> bool:
@@ -258,9 +257,12 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
     )
     def test_recognizes_real_captcha_with_gemini(self) -> None:
         image_path = PROJECT_ROOT / "tests" / "fixtures" / "captcha_gemini_integration.jpg"
-        answer = CaptchaSolutione(INTEGRATION_CONFIG_PATH).get_answer(
-            CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
-        )
+        environment = dict(os.environ)
+        load_env_file(PROJECT_ROOT / ".env", environment=environment)
+        with patch.dict(os.environ, environment, clear=True):
+            answer = CaptchaSolutione(INTEGRATION_CONFIG_PATH).get_answer(
+                CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
+            )
 
         self.assertEqual(answer, "евшему увидала")
 
