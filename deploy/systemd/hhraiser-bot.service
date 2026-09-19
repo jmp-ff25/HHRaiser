@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/hhraiser
-EnvironmentFile=/etc/hhraiser/bot.env
-ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser-bot --config-file /etc/hhraiser/bot.ini
+EnvironmentFile=/opt/hhraiser/.env
+ExecStart=/opt/hhraiser/.venv/bin/hh-resume-raiser-bot
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true

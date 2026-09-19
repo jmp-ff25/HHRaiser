@@ -1,9 +1,11 @@
 version: "3"
 
 vars:
-  CONFIG_FILE: hh-config.ini
+  STATE_DIR: state/main
+  CONFIG_FILE: "{{.STATE_DIR}}/hh-config.ini"
+  PROFILE_DIR: "{{.STATE_DIR}}/browser-profile"
   COMMON_ARGS: >-
-    --config-file "{{.CONFIG_FILE}}"
+    --config-file "{{.CONFIG_FILE}}" --profile-dir "{{.PROFILE_DIR}}"
   ACTIVITY_ARGS: --full-activity
   RESUME_REFRESH_ARGS: --resume-index-refresh
   RESPONSE_ARGS: --auto-respond
@@ -60,6 +62,7 @@ tasks:
         "import os; from pathlib import Path;
         source = Path('hh-config.example.ini');
         target = Path(os.environ['HH_TASK_CONFIG_FILE']);
+        target.parent.mkdir(parents=True, exist_ok=True);
         target.write_bytes(source.read_bytes())"
 
   prepare-env:

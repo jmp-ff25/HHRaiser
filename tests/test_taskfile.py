@@ -23,6 +23,13 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("hh-resume-raiser-bot", taskfile)
         self.assertNotIn("BOT_CONFIG_FILE", taskfile)
 
+    def test_main_instance_uses_project_state_directory(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        self.assertIn("STATE_DIR: state/main", taskfile)
+        self.assertIn('CONFIG_FILE: "{{.STATE_DIR}}/hh-config.ini"', taskfile)
+        self.assertIn('PROFILE_DIR: "{{.STATE_DIR}}/browser-profile"', taskfile)
+
     def test_full_activity_profiles_enable_safe_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 
@@ -43,3 +50,5 @@ class TaskfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("--telegram-captcha", service)
+        self.assertIn("--config-file state/%i/hh-config.ini", service)
+        self.assertIn("--profile-dir state/%i/browser-profile", service)
