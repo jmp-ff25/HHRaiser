@@ -214,6 +214,67 @@ tasks:
       - >-
         uv run --locked hh-resume-raiser-bot
 
+  server-install:
+    desc: Установить systemd-службы HHRaiser на Debian/Ubuntu
+    platforms: [linux]
+    cmds:
+      - sudo ./scripts/install-ubuntu.sh
+      - task: server-start
+
+  server-start:
+    desc: Запустить основной экземпляр и Telegram-бота через systemd
+    platforms: [linux]
+    cmds:
+      - uv run --locked hhraiser start
+
+  server-stop:
+    desc: Остановить основной экземпляр и Telegram-бота через systemd
+    platforms: [linux]
+    cmds:
+      - uv run --locked hhraiser stop
+
+  server-restart:
+    desc: Перезапустить основной экземпляр и Telegram-бота через systemd
+    platforms: [linux]
+    cmds:
+      - task: server-stop
+      - task: server-start
+
+  server-status:
+    desc: Показать состояние systemd-служб HHRaiser
+    platforms: [linux]
+    cmds:
+      - uv run --locked hhraiser status
+
+  server-logs:
+    desc: Показать последние записи журналов systemd; LINES=100 по умолчанию
+    platforms: [linux]
+    vars:
+      LINES: '{{default "100" .LINES}}'
+    cmds:
+      - uv run --locked hhraiser logs --lines {{.LINES}}
+
+  server-logs-follow:
+    desc: Показывать новые записи журналов systemd в реальном времени
+    platforms: [linux]
+    cmds:
+      - >-
+        journalctl --follow --unit hhraiser@main.service --unit hhraiser-bot.service
+        --output=cat
+
+  server-update:
+    desc: Подтянуть код, синхронизировать зависимости и перезапустить службы
+    platforms: [linux]
+    cmds:
+      - uv run --locked hhraiser update
+      - task: server-restart
+
+  server-reconfigure:
+    desc: Проверить .env и hh-config.ini перед запуском systemd-служб
+    platforms: [linux]
+    cmds:
+      - uv run --locked hhraiser reconfigure
+
   format:
     desc: Отформатировать Python-код
     cmds:

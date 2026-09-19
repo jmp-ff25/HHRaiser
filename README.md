@@ -143,7 +143,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
 
 ```bash
 sudo ./scripts/install-ubuntu.sh
-uv run hhraiser start
+task server-start
 ```
 
 Установщик сам получает `uv`, Python-зависимости и Chromium, проверяет конфигурацию,
@@ -151,16 +151,20 @@ uv run hhraiser start
 не выводятся и не запрашиваются. Дальнейшее управление на сервере:
 
 ```bash
-uv run hhraiser status
-uv run hhraiser logs --lines 100
-uv run hhraiser stop
-uv run hhraiser update
-uv run hhraiser reconfigure
+task server-status
+task server-logs
+task server-logs LINES=200
+task server-logs-follow
+task server-stop
+task server-start
+task server-restart
+task server-update
+task server-reconfigure
 ```
 
 Файлы проекта, включая `.env`, `state/`, виртуальную среду и Chromium, остаются внутри
 каталога HHRaiser. Systemd-unit-файлы удаляются отдельно при деинсталляции; удалить
-папку проекта во время работы службы нельзя — сначала выполните `uv run hhraiser stop`.
+папку проекта во время работы службы нельзя — сначала выполните `task server-stop`.
 
 ### 2. Один раз инициализируйте сессию
 
@@ -642,7 +646,7 @@ task help
 просматривайте их в реальном времени так:
 
 ```bash
-journalctl -fu hhraiser@main.service --output=cat
+task server-logs-follow
 ```
 
 Локальное состояние размещается в `.hh-resume-raiser/`:
