@@ -342,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--activity-interval-seconds",
         type=positive_seconds,
-        default=300,
+        default=None,
         help="Интервал между циклами просмотра вакансий (по умолчанию 300 секунд).",
     )
     parser.add_argument(
@@ -630,6 +630,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     args.resume_title = settings.resume_title
     args.vacancies_per_cycle = settings.vacancies_per_group
+    args.activity_interval_seconds = settings.activity_interval_seconds
     args.search_queries = settings.search_queries
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.unique_vacancy_limit = settings.unique_vacancy_limit

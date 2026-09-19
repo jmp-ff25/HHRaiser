@@ -187,6 +187,11 @@ class CliTests(unittest.TestCase):
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             build_parser().parse_args(["--activity-interval-seconds", "0"])
 
+    def test_activity_interval_is_resolved_from_config_by_default(self) -> None:
+        args = build_parser().parse_args([])
+
+        self.assertIsNone(args.activity_interval_seconds)
+
     def test_resume_refresh_is_opt_in(self) -> None:
         args = build_parser().parse_args([])
 

@@ -17,6 +17,7 @@ class ConfigTests(unittest.TestCase):
             path.write_text(
                 "[resume]\ntitle = Аналитик\n\n"
                 "[activity]\nsearch_queries =\n    Аналитик данных\n    Data analyst\n"
+                "activity_interval_seconds = 600\n"
                 "unique_vacancy_limit = 750\n"
                 "revisit_after_days = 21\n"
                 "search_pages_per_cycle = 30\n"
@@ -35,6 +36,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.resume_title, "Аналитик")
         self.assertEqual(config.search_queries, ("Аналитик данных", "Data analyst"))
+        self.assertEqual(config.activity_interval_seconds, 600)
         self.assertEqual(config.unique_vacancy_limit, 750)
         self.assertEqual(config.revisit_after_days, 21)
         self.assertEqual(config.search_pages_per_cycle, 30)
@@ -96,6 +98,45 @@ class ConfigTests(unittest.TestCase):
 
         self.assertTrue(settings.auto_respond)
         self.assertEqual(settings.daily_response_limit, 15)
+
+    def test_reads_activity_interval_from_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Аналитик\n"
+                "[activity]\nsearch_queries = Аналтик\nactivity_interval_seconds = 600\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    activity_interval_seconds=None,
+                    full_activity=True,
+                )
+            )
+
+        self.assertEqual(settings.activity_interval_seconds, 600)
+
+    def test_rejects_non_positive_activity_interval_from_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Аналитик\n"
+                "[activity]\nsearch_queries = Аналитик\nactivity_interval_seconds = 0\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                config_file=path,
+                resume_title=None,
+                search_query=None,
+                activity_interval_seconds=None,
+                full_activity=True,
+            )
+
+            with self.assertRaisesRegex(ValueError, "activity_interval_seconds"):
+                resolve_runtime_settings(args)
 
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:
