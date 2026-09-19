@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import cv2
 import numpy as np
 
+from hh_raiser.env_file import load_env_file
 from hh_raiser.infrastructure.browser.captcha_answer_source import (
     CaptchaRequest,
     CaptchaSolutione,
@@ -22,6 +24,11 @@ from hh_raiser.infrastructure.browser.captcha_guard import (
 from hh_raiser.infrastructure.storage.owner_interventions import OwnerInterventionStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_INTEGRATION_CONFIG_PATH = PROJECT_ROOT / "state" / "main" / "hh-config.ini"
+INTEGRATION_CONFIG_PATH = Path(
+    os.environ.get("HHRAISER_CONFIG_FILE", DEFAULT_INTEGRATION_CONFIG_PATH)
+)
+load_env_file(PROJECT_ROOT / ".env")
 
 
 def _captcha_integration_enabled(config_path: Path) -> bool:
@@ -245,13 +252,13 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         self.assertEqual(input_field.fill.call_count, 5)
 
     @unittest.skipUnless(
-        _captcha_integration_enabled(PROJECT_ROOT / "hh-config.ini"),
-        "Установите [captchasolution] integration_test_enabled = true в hh-config.ini "
+        _captcha_integration_enabled(INTEGRATION_CONFIG_PATH),
+        "Установите [captchasolution] integration_test_enabled = true в state/main/hh-config.ini "
         "для платного запроса Gemini.",
     )
     def test_recognizes_real_captcha_with_gemini(self) -> None:
         image_path = PROJECT_ROOT / "tests" / "fixtures" / "captcha_gemini_integration.jpg"
-        answer = CaptchaSolutione(PROJECT_ROOT / "hh-config.ini").get_answer(
+        answer = CaptchaSolutione(INTEGRATION_CONFIG_PATH).get_answer(
             CaptchaRequest("integration", image_path.read_bytes(), "Введите текст")
         )
 
