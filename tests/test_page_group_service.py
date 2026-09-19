@@ -9,6 +9,7 @@ from unittest.mock import patch
 from hh_raiser.activities.vacancy_viewer import VacancyViewOutcome
 from hh_raiser.application.page_group_service import run_vacancy_page_group
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
+from hh_raiser.bot.statistics import read_instance_statistics
 from hh_raiser.domain.action import ActivityKind
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
@@ -205,6 +206,45 @@ class PageGroupServiceTests(unittest.TestCase):
             self.assertTrue(view.call_args.kwargs["view_below_threshold"])
             respond.assert_not_called()
             self.assertFalse(history.has_response_record(url))
+
+    def test_persists_discovered_and_viewed_vacancy_for_bot_statistics(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            history = VacancyHistory(state_dir / "vacancy-history.sqlite3")
+            url = "https://hh.ru/vacancy/8"
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                unique_vacancy_limit=0,
+                vacancy_matching=False,
+            )
+            viewed = VacancyViewOutcome(
+                url=url,
+                result=result(ActivityKind.VIEW_VACANCY, vacancy_title="Python developer"),
+            )
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    return_value=[viewed],
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python developer")
+
+            self.assertEqual(history.search_coverage(("Python",))["Python"][0], 1)
+            self.assertEqual(history.response_records(), [])
+            self.assertEqual(history.sent_response_count_today(), 0)
+            statistics = read_instance_statistics(state_dir)
+
+        self.assertEqual(statistics.discovered, 1)
+        self.assertEqual(statistics.total_views, 1)
 
 
 if __name__ == "__main__":

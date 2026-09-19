@@ -45,6 +45,7 @@ def run_vacancy_page_group(
             page,
             policy,
             traversal,
+            history,
             results,
             captcha_guard=captcha_guard,
             stop_requested=stop_requested,
@@ -139,6 +140,13 @@ def run_vacancy_page_group(
             },
         )
         results.append(result)
+        if result.status is ActivityStatus.SUCCESS:
+            history.mark_viewed(outcome.url)
+            if result.metadata.get("match_evaluated") is True:
+                score = result.metadata.get("match_score")
+                accepted = result.metadata.get("match_accepted")
+                if isinstance(score, int) and isinstance(accepted, bool):
+                    history.mark_evaluated(outcome.url, score=score, accepted=accepted)
 
         if known_status is not None:
             LOGGER.info(
@@ -243,6 +251,7 @@ def _load_next_nonempty_group(
     page: Page,
     policy: ActivityPolicy,
     traversal: VacancyTraversal,
+    history: VacancyHistory,
     results: list[ActivityResult],
     *,
     captcha_guard: CaptchaResolver | None,
@@ -275,10 +284,22 @@ def _load_next_nonempty_group(
                 },
             )
         )
+        reservation = history.reserve_candidates(
+            vacancy_urls,
+            search_query=request.query,
+            limit=policy.unique_vacancy_limit or len(vacancy_urls),
+            revisit_after_days=policy.revisit_after_days,
+        )
+        history.record_search_page(
+            search_query=request.query,
+            page=request.page,
+            page_count=page_count,
+            reservation=reservation,
+        )
         group_count = traversal.observe_search(
             request,
             page_count=page_count,
-            urls=vacancy_urls,
+            urls=list(reservation.urls),
             group_size=max(policy.vacancies_per_cycle, 1),
         )
         LOGGER.info(

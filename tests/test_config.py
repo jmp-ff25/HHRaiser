@@ -76,6 +76,27 @@ class ConfigTests(unittest.TestCase):
 
         self.assertTrue(config.captcha_answer_source)
 
+    def test_responses_are_enabled_by_default_when_only_limit_is_configured(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Аналитик\n"
+                "[activity]\nsearch_queries = Аналитик\n"
+                "[responses]\ndaily_limit = 15\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                config_file=path,
+                resume_title=None,
+                search_query=None,
+                full_activity=True,
+            )
+
+            settings = resolve_runtime_settings(args)
+
+        self.assertTrue(settings.auto_respond)
+        self.assertEqual(settings.daily_response_limit, 15)
+
     def test_cli_values_override_file_config(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
