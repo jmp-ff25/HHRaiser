@@ -23,7 +23,8 @@ fi
 cd "$PROJECT_DIR"
 uv sync --locked --extra dev
 uv run playwright install-deps chromium
-uv run playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$PROJECT_DIR/state/main/playwright-browsers" \
+  uv run playwright install chromium
 uv run hhraiser setup
 
 escaped_project_dir=$(printf '%s' "$PROJECT_DIR" | sed 's/[&|]/\\&/g')

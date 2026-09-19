@@ -9,5 +9,6 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 cd "$PROJECT_DIR"
 uv sync --locked --extra dev
-uv run playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH="$PROJECT_DIR/state/main/playwright-browsers" \
+  uv run playwright install chromium
 uv run hhraiser setup

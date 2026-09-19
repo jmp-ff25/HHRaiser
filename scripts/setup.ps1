@@ -8,5 +8,6 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 Set-Location $projectDir
 uv sync --locked --extra dev
+$env:PLAYWRIGHT_BROWSERS_PATH = "$projectDir\state\main\playwright-browsers"
 uv run playwright install chromium
 uv run hhraiser setup

@@ -29,6 +29,7 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("STATE_DIR: state/main", taskfile)
         self.assertIn('CONFIG_FILE: "{{.STATE_DIR}}/hh-config.ini"', taskfile)
         self.assertIn('PROFILE_DIR: "{{.STATE_DIR}}/browser-profile"', taskfile)
+        self.assertIn('PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/', taskfile)
 
     def test_full_activity_profiles_enable_safe_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")

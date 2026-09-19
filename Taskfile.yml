@@ -15,7 +15,7 @@ vars:
 # с каталогом проекта.
 env:
   UV_CACHE_DIR: "{{.TASKFILE_DIR}}/.uv-cache"
-  PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/.hh-resume-raiser/playwright-browsers"
+  PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/playwright-browsers"
 
 tasks:
   default:
