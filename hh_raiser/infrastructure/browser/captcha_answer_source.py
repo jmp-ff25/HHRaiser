@@ -35,13 +35,21 @@ class CaptchaAnswerSource(Protocol):
 
 
 class CaptchaSolutione:
+    """Распознавать текст CAPTCHA через совместимый с OpenAI API."""
+
     REQUEST_TIMEOUT_SECONDS = 20.0
+    OCR_PROMPT = (
+        "Точно перепиши русскую CAPTCHA. На ней ровно два слова строчными буквами. "
+        "Исходная CAPTCHA — источник истины, а варианты выпрямления служат только "
+        "подсказкой. Не исправляй странные слова по смыслу. Ответь только JSON без "
+        'Markdown: {"text":"первое второе","confidence":0.00}.'
+    )
 
     def __init__(self, config_path: Path = Path("hh-config.ini")) -> None:
         """Создать источник из секции ``[captchasolution]`` INI-файла."""
         self.client: OpenAI | None = None
         self.model = ""
-        self.prompt = ""
+        self.prompt = self.OCR_PROMPT
         parser = configparser.RawConfigParser(interpolation=None)
         try:
             with config_path.open(encoding="utf-8") as stream:
@@ -62,13 +70,11 @@ class CaptchaSolutione:
             return
 
         api_key = os.environ.get("HHRAISER_POLZA_API_KEY", "").strip()
-        api_key = api_key or self._read_setting(parser, "polza_api_key")
-        prompt = self._read_setting(parser, "ocr_prompt")
         api_url = self._read_setting(parser, "api_url")
         model = self._read_setting(parser, "model")
-        if not all((api_key, prompt, api_url, model)):
+        if not all((api_key, api_url, model)):
             LOGGER.error(
-                "Задайте HHRAISER_POLZA_API_KEY в .env и параметры CAPTCHA в hh-config.ini.",
+                "Задайте HHRAISER_POLZA_API_KEY в .env, а URL и модель CAPTCHA в hh-config.ini.",
                 extra=event_data(LogEvent.CAPTCHA),
             )
             return
@@ -79,7 +85,6 @@ class CaptchaSolutione:
             max_retries=0,
         )
         self.model = model
-        self.prompt = prompt
 
     @staticmethod
     def _read_setting(parser: configparser.RawConfigParser, option: str) -> str:

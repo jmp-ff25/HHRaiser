@@ -122,8 +122,6 @@ class CaptchaSolutioneTests(unittest.TestCase):
             config_path = Path(directory) / "hh-config.ini"
             config_path.write_text(
                 "[captchasolution]\n"
-                "polza_api_key = test-key\n"
-                "ocr_prompt = Точно перепиши CAPTCHA\n"
                 'api_url = "https://polza.ai/api/v1"\n'
                 'model = "google/gemini-3.8-flash"\n',
                 encoding="utf-8",
@@ -132,7 +130,10 @@ class CaptchaSolutioneTests(unittest.TestCase):
             succeeded, buffer = cv2.imencode(".png", image)
             self.assertTrue(succeeded)
 
-            with patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai:
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+            ):
                 response = openai.return_value.chat.completions.create.return_value
                 response.choices = [MagicMock(message=MagicMock(content='{"text":"Верный ответ"}'))]
                 answer = CaptchaSolutione(config_path).get_answer(
@@ -140,6 +141,8 @@ class CaptchaSolutioneTests(unittest.TestCase):
                 )
 
         self.assertEqual(answer, "верный ответ")
+        request = openai.return_value.chat.completions.create.call_args.kwargs
+        self.assertEqual(request["messages"][0]["content"][0]["text"], CaptchaSolutione.OCR_PROMPT)
 
 
 class GeminiCaptchaFallbackTests(unittest.TestCase):
