@@ -4,7 +4,9 @@ import unittest
 
 from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
+    _direct_resume_url,
     _edit_button_state,
+    _profile_resume_url,
     _timeout_detail,
     build_marked_description,
     description_matches_marker_base,
@@ -76,3 +78,33 @@ class ResumeIndexRefresherTests(unittest.TestCase):
                 return Locator()
 
         self.assertEqual(_edit_button_state(Page()), "кнопок в DOM: 2; видимых: 1")
+
+    def test_accepts_only_relative_hh_resume_link(self) -> None:
+        self.assertEqual(
+            _direct_resume_url("/resume/example"),
+            "https://hh.ru/resume/example",
+        )
+        self.assertIsNone(_direct_resume_url("https://example.com/resume/example"))
+
+    def test_uses_only_the_single_resume_link_from_profile(self) -> None:
+        class Link:
+            def get_attribute(self, name: str) -> str | None:
+                return "/resume/example" if name == "href" else None
+
+        class Links:
+            count = lambda self: 1
+            first = Link()
+
+        class Card:
+            def locator(self, selector: str) -> Links:
+                return Links()
+
+        class Cards:
+            count = lambda self: 1
+            first = Card()
+
+        class Page:
+            def locator(self, selector: str) -> Cards:
+                return Cards()
+
+        self.assertEqual(_profile_resume_url(Page()), "https://hh.ru/resume/example")

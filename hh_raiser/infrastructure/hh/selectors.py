@@ -19,6 +19,7 @@ RESPONSE_LETTER_INPUT = '[data-qa="vacancy-response-popup-form-letter-input"]'
 RESPONSE_QUESTION_INPUT = 'textarea[name^="task_"], input[name^="task_"], select[name^="task_"]'
 
 RESUME_CARD = '[data-qa="resume"]'
+RESUME_DIRECT_LINK = 'a[href^="/resume/"]'
 RESUME_UPDATE_BUTTON = '[data-qa~="resume-update-button"]'
 PROFILE_EXPERIENCE = '[data-qa="profile-experience-card"]'
 PROFILE_EDUCATION = '[data-qa="profile-education-card"]'

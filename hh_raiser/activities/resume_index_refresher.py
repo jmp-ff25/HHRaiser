@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlsplit
 
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
@@ -18,6 +19,8 @@ from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_EDIT_BUTTON,
     PROFILE_SAVE_BUTTON,
     PROFILE_URL,
+    RESUME_CARD,
+    RESUME_DIRECT_LINK,
 )
 from hh_raiser.models import MOSCOW
 from hh_raiser.storage import write_resume_refresh_attempt
@@ -163,6 +166,29 @@ def _edit_button_state(page: Page) -> str:
     return f"кнопок в DOM: {count}; видимых: {visible}"
 
 
+def _direct_resume_url(href: str | None) -> str | None:
+    """Return a safe direct HH resume URL without relying on a resume identifier."""
+    if not href:
+        return None
+    candidate = urlsplit(urljoin(PROFILE_URL, href))
+    if candidate.scheme != "https" or candidate.netloc != "hh.ru":
+        return None
+    if not candidate.path.startswith("/resume/"):
+        return None
+    return candidate.geturl()
+
+
+def _profile_resume_url(page: Page) -> str | None:
+    """Find the only resume linked from the profile summary page."""
+    cards = page.locator(RESUME_CARD)
+    if cards.count() != 1:
+        return None
+    links = cards.first.locator(RESUME_DIRECT_LINK)
+    if links.count() != 1:
+        return None
+    return _direct_resume_url(links.first.get_attribute("href"))
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -179,6 +205,27 @@ def refresh_resume_index(
         if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
             page.goto(PROFILE_URL, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
+
+        resume_cards = page.locator(RESUME_CARD)
+        stage = "ожидание карточки резюме"
+        resume_cards.first.wait_for(state="visible", timeout=15_000)
+        stage = "поиск прямой страницы резюме"
+        resume_url = _profile_resume_url(page)
+        if resume_url is None:
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "Не удалось однозначно определить страницу резюме в профиле; "
+                    "резюме не изменено."
+                ),
+            )
+        stage = "загрузка прямой страницы резюме"
+        page.goto(resume_url, wait_until="domcontentloaded")
+        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+            page.goto(resume_url, wait_until="domcontentloaded")
+        dismiss_hh_pro_modal(page)
+
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
         stage = "ожидание кнопок редактирования опыта"
         edit_buttons.first.wait_for(state="visible", timeout=15_000)
