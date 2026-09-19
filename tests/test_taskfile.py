@@ -21,7 +21,7 @@ class TaskfileTests(unittest.TestCase):
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 
         self.assertIn("hh-resume-raiser-bot", taskfile)
-        self.assertIn("BOT_CONFIG_FILE", taskfile)
+        self.assertNotIn("BOT_CONFIG_FILE", taskfile)
 
     def test_full_activity_profiles_enable_safe_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")

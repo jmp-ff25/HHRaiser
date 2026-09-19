@@ -17,14 +17,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config-file",
         type=Path,
-        default=Path("hh-bot.ini"),
-        help="Локальный INI-файл со списком разрешённых экземпляров.",
+        default=DEFAULT_ENV_PATH,
+        help=".env с настройками бота; hh-bot.ini можно передать для совместимости.",
     )
     parser.add_argument(
         "--env-file",
         type=Path,
         default=DEFAULT_ENV_PATH,
-        help="Локальный .env с токеном Telegram; внешняя переменная имеет приоритет.",
+        help="Локальный .env; внешние переменные имеют приоритет.",
     )
     return parser
 

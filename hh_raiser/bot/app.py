@@ -581,7 +581,7 @@ class TelegramControlBot:
         return False
 
     async def send_periodic_summaries(self, bot: Bot) -> None:
-        """Отправлять сводки владельцам с настроенным интервалом до остановки бота."""
+        """Отправлять сводки только для работающих экземпляров."""
 
         interval_seconds = self.settings.summary_interval_minutes * 60
         if interval_seconds <= 0:
@@ -591,13 +591,17 @@ class TelegramControlBot:
             parts: list[str] = ["<b>Периодическая сводка HHRaiser</b>"]
             for instance in self.settings.instances.values():
                 try:
-                    snapshot, statistics = await asyncio.gather(
-                        self.services.snapshot(instance.service_name),
-                        asyncio.to_thread(read_instance_statistics, instance.state_dir),
+                    snapshot = await self.services.snapshot(instance.service_name)
+                    if not snapshot.is_active:
+                        continue
+                    statistics = await asyncio.to_thread(
+                        read_instance_statistics, instance.state_dir
                     )
                     parts.append(format_periodic_summary(instance, snapshot, statistics))
                 except (ServiceCommandError, StatisticsReadError) as error:
                     parts.append(f"<b>{escape(instance.name)}</b> — 🔴 {escape(str(error))}")
+            if len(parts) == 1:
+                continue
             text = "\n\n".join(parts)
             for user_id in self.settings.allowed_user_ids:
                 try:

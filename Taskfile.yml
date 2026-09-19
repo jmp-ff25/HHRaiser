@@ -2,7 +2,6 @@ version: "3"
 
 vars:
   CONFIG_FILE: hh-config.ini
-  BOT_CONFIG_FILE: hh-bot.ini
   COMMON_ARGS: >-
     --config-file "{{.CONFIG_FILE}}"
   ACTIVITY_ARGS: --full-activity
@@ -205,7 +204,6 @@ tasks:
     cmds:
       - >-
         uv run --locked hh-resume-raiser-bot
-        --config-file "{{.BOT_CONFIG_FILE}}"
 
   format:
     desc: Отформатировать Python-код

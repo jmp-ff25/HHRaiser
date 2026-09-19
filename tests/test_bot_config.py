@@ -8,6 +8,31 @@ from hh_raiser.bot.config import BotConfigError, load_bot_settings
 
 
 class BotConfigTests(unittest.TestCase):
+    def test_loads_bot_settings_from_env_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_path = root / ".env"
+            env_path.write_text(
+                "HHRAISER_BOT_TOKEN=secret\n"
+                "HHRAISER_BOT_ALLOWED_USER_IDS=100, 200\n"
+                "HHRAISER_BOT_LOG_LINES=30\n"
+                "HHRAISER_BOT_SUMMARY_INTERVAL_MINUTES=360\n"
+                "HHRAISER_BOT_USER_SYSTEMD=true\n"
+                "HHRAISER_BOT_INSTANCES=main\n"
+                "HHRAISER_INSTANCE_MAIN_NAME=Основное резюме\n"
+                "HHRAISER_INSTANCE_MAIN_SERVICE=hhraiser@main.service\n"
+                "HHRAISER_INSTANCE_MAIN_STATE_DIR=state/main\n",
+                encoding="utf-8",
+            )
+
+            settings = load_bot_settings(env_path, environment={})
+
+        self.assertEqual(settings.token, "secret")
+        self.assertEqual(settings.allowed_user_ids, frozenset({100, 200}))
+        self.assertEqual(settings.log_lines, 30)
+        self.assertEqual(settings.summary_interval_minutes, 360)
+        self.assertEqual(settings.instances["main"].state_dir, root / "state" / "main")
+
     def test_loads_allow_list_and_resolves_relative_state_directory(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

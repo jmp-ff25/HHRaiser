@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from hh_raiser.bot.models import BotSettings, ManagedInstance
+from hh_raiser.env_file import EnvFileError, load_env_file
 
 TOKEN_ENVIRONMENT_VARIABLE = "HHRAISER_BOT_TOKEN"
 USER_IDS_ENVIRONMENT_VARIABLE = "HHRAISER_BOT_ALLOWED_USER_IDS"
@@ -24,9 +25,15 @@ def load_bot_settings(
     *,
     environment: Mapping[str, str] | None = None,
 ) -> BotSettings:
-    """Read bot settings while keeping the Telegram token outside the INI file."""
+    """Read bot settings from .env by default or a legacy INI file."""
 
-    source_environment = environment if environment is not None else os.environ
+    source_environment = dict(environment) if environment is not None else dict(os.environ)
+    if path.name.casefold() == ".env":
+        try:
+            load_env_file(path, environment=source_environment)
+        except EnvFileError as error:
+            raise BotConfigError(str(error)) from error
+        return _read_env_settings(path.resolve(), source_environment)
     parser = configparser.ConfigParser(interpolation=None)
     try:
         with path.open(encoding="utf-8") as stream:
@@ -73,6 +80,79 @@ def load_bot_settings(
         summary_interval_minutes=summary_interval_minutes,
         user_systemd=user_systemd,
     )
+
+
+def _read_env_settings(path: Path, environment: Mapping[str, str]) -> BotSettings:
+    token = environment.get(TOKEN_ENVIRONMENT_VARIABLE, "").strip()
+    if not token:
+        raise BotConfigError(
+            f"Не задан токен Telegram-бота в переменной {TOKEN_ENVIRONMENT_VARIABLE}."
+        )
+    allowed_user_ids = _parse_user_ids(environment.get(USER_IDS_ENVIRONMENT_VARIABLE, ""))
+    if not allowed_user_ids:
+        raise BotConfigError("Не указан ни один разрешённый Telegram user ID.")
+    try:
+        log_lines = int(environment.get("HHRAISER_BOT_LOG_LINES", "25"))
+        summary_interval_minutes = int(
+            environment.get("HHRAISER_BOT_SUMMARY_INTERVAL_MINUTES", "0")
+        )
+        user_systemd = _parse_env_boolean(environment.get("HHRAISER_BOT_USER_SYSTEMD", "true"))
+    except ValueError as error:
+        raise BotConfigError("Некорректное значение настройки Telegram-бота в .env.") from error
+    if not 5 <= log_lines <= 100:
+        raise BotConfigError("HHRAISER_BOT_LOG_LINES должно быть от 5 до 100.")
+    if not 0 <= summary_interval_minutes <= 10_080:
+        raise BotConfigError("HHRAISER_BOT_SUMMARY_INTERVAL_MINUTES должно быть от 0 до 10080.")
+    raw_keys = environment.get("HHRAISER_BOT_INSTANCES", "main")
+    keys = tuple(dict.fromkeys(item.strip() for item in raw_keys.replace(",", " ").split() if item))
+    instances = {key: _read_env_instance(key, path, environment) for key in keys}
+    if not instances:
+        raise BotConfigError("Укажите хотя бы один ключ в HHRAISER_BOT_INSTANCES.")
+    return BotSettings(
+        token, allowed_user_ids, instances, log_lines, summary_interval_minutes, user_systemd
+    )
+
+
+def _read_env_instance(
+    key: str, config_path: Path, environment: Mapping[str, str]
+) -> ManagedInstance:
+    if not _INSTANCE_KEY.fullmatch(key):
+        raise BotConfigError(
+            "Ключ экземпляра должен содержать латиницу, цифры, дефис или подчёркивание."
+        )
+    prefix = f"HHRAISER_INSTANCE_{key.upper().replace('-', '_')}_"
+    name = environment.get(f"{prefix}NAME", key).strip()
+    service_name = environment.get(f"{prefix}SERVICE", "").strip()
+    raw_state_dir = environment.get(f"{prefix}STATE_DIR", "").strip()
+    if not name or len(name) > 60:
+        raise BotConfigError(f"{prefix}NAME должно содержать от 1 до 60 символов.")
+    if not _SERVICE_NAME.fullmatch(service_name):
+        raise BotConfigError(f"{prefix}SERVICE должно быть допустимым именем .service.")
+    if not raw_state_dir:
+        raise BotConfigError(f"Не задано {prefix}STATE_DIR.")
+    state_dir = Path(raw_state_dir).expanduser()
+    if not state_dir.is_absolute():
+        state_dir = config_path.parent / state_dir
+    state_dir = state_dir.resolve()
+    raw_config_file = environment.get(f"{prefix}CONFIG_FILE", "").strip()
+    config_file = (
+        Path(raw_config_file).expanduser() if raw_config_file else state_dir / "hh-config.ini"
+    )
+    if not config_file.is_absolute():
+        config_file = config_path.parent / config_file
+    config_file = config_file.resolve()
+    if not config_file.is_relative_to(state_dir):
+        raise BotConfigError(f"{prefix}CONFIG_FILE должен находиться внутри STATE_DIR.")
+    return ManagedInstance(key, name, service_name, state_dir, config_file)
+
+
+def _parse_env_boolean(value: str) -> bool:
+    normalized = value.strip().casefold()
+    if normalized in {"1", "yes", "true", "on"}:
+        return True
+    if normalized in {"0", "no", "false", "off"}:
+        return False
+    raise ValueError("boolean")
 
 
 def _parse_user_ids(value: str) -> frozenset[int]:
