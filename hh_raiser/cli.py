@@ -137,7 +137,7 @@ def log_activity_results(results: list[ActivityResult]) -> None:
     if search_results:
         search_counts = Counter(result.status for result in search_results)
         LOGGER.info(
-            "Итоги поиска уникальных вакансий: страниц проверено — %s; "
+            "Итоги поиска вакансий: страниц проверено — %s; "
             "успешно распознано — %s; неизвестный результат — %s; ошибки — %s.",
             len(search_results),
             search_counts[ActivityStatus.SUCCESS],
@@ -368,7 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--search-pages-per-cycle",
         type=lambda value: bounded_positive_int(value, maximum=200),
         default=None,
-        help="Максимум страниц выдачи, проверяемых для набора уникальных вакансий.",
+        help="Максимум страниц выдачи, проверяемых для каждого поискового запроса.",
     )
     parser.add_argument(
         "--reset-vacancy-history",
