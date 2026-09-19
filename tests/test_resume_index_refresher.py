@@ -9,6 +9,7 @@ from hh_raiser.activities.resume_index_refresher import (
     remove_one_trailing_period,
     restore_marked_description,
 )
+from hh_raiser.infrastructure.hh.selectors import EXPERIENCE_EDIT_BUTTON
 
 
 class ResumeIndexRefresherTests(unittest.TestCase):
@@ -44,3 +45,6 @@ class ResumeIndexRefresherTests(unittest.TestCase):
 
     def test_repairs_one_orphaned_period_at_a_time(self) -> None:
         self.assertEqual(remove_one_trailing_period("Описание...\n"), "Описание..\n")
+
+    def test_targets_experience_edit_buttons_not_nested_icons(self) -> None:
+        self.assertEqual(EXPERIENCE_EDIT_BUTTON, 'button[data-qa^="edit-experience-button-"]')

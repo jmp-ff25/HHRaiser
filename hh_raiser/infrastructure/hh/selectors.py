@@ -24,7 +24,7 @@ PROFILE_EXPERIENCE = '[data-qa="profile-experience-card"]'
 PROFILE_EDUCATION = '[data-qa="profile-education-card"]'
 PROFILE_LANGUAGE = '[data-qa="profile-language-card"]'
 RESUME_RECOMMENDATION = '[data-qa^="resume-recommendation"]'
-EXPERIENCE_EDIT_BUTTON = '[data-qa^="edit-experience-button-"]'
+EXPERIENCE_EDIT_BUTTON = 'button[data-qa^="edit-experience-button-"]'
 EXPERIENCE_DESCRIPTION_INPUT = '[data-qa~="resume-editor-experience-description-input"]'
 PROFILE_SAVE_BUTTON = '[data-qa="profile-layout-save-button"]'
 
