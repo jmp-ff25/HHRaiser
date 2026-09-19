@@ -21,6 +21,7 @@ from hh_raiser.infrastructure.hh.selectors import (
     PROFILE_URL,
     RESUME_CARD,
     RESUME_DIRECT_LINK,
+    RESUME_EXPERIENCE_VIEW_ALL,
 )
 from hh_raiser.models import MOSCOW
 from hh_raiser.storage import write_resume_refresh_attempt
@@ -189,6 +190,15 @@ def _profile_resume_url(page: Page) -> str | None:
     return _direct_resume_url(links.first.get_attribute("href"))
 
 
+def _expand_experience_if_collapsed(page: Page) -> bool:
+    """Open the compact experience list when HH renders it behind a disclosure button."""
+    view_all = page.locator(RESUME_EXPERIENCE_VIEW_ALL).first
+    if not view_all.count() or not view_all.is_visible(timeout=0):
+        return False
+    view_all.click()
+    return True
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -226,6 +236,8 @@ def refresh_resume_index(
             page.goto(resume_url, wait_until="domcontentloaded")
         dismiss_hh_pro_modal(page)
 
+        stage = "открытие полного списка опыта"
+        _expand_experience_if_collapsed(page)
         edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
         stage = "ожидание кнопок редактирования опыта"
         edit_buttons.first.wait_for(state="visible", timeout=15_000)

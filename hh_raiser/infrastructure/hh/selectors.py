@@ -20,6 +20,7 @@ RESPONSE_QUESTION_INPUT = 'textarea[name^="task_"], input[name^="task_"], select
 
 RESUME_CARD = '[data-qa="resume"]'
 RESUME_DIRECT_LINK = 'a[href^="/resume/"]'
+RESUME_EXPERIENCE_VIEW_ALL = 'button[data-qa="profile-experience-viewAll"]'
 RESUME_UPDATE_BUTTON = '[data-qa~="resume-update-button"]'
 PROFILE_EXPERIENCE = '[data-qa="profile-experience-card"]'
 PROFILE_EDUCATION = '[data-qa="profile-education-card"]'

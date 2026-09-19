@@ -6,6 +6,7 @@ from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
     _direct_resume_url,
     _edit_button_state,
+    _expand_experience_if_collapsed,
     _profile_resume_url,
     _timeout_detail,
     build_marked_description,
@@ -108,3 +109,33 @@ class ResumeIndexRefresherTests(unittest.TestCase):
                 return Cards()
 
         self.assertEqual(_profile_resume_url(Page()), "https://hh.ru/resume/example")
+
+    def test_expands_collapsed_experience_list_before_editing(self) -> None:
+        class ViewAll:
+            def __init__(self) -> None:
+                self.clicked = False
+
+            @property
+            def first(self) -> ViewAll:
+                return self
+
+            def count(self) -> int:
+                return 1
+
+            def is_visible(self, *, timeout: int) -> bool:
+                return timeout == 0
+
+            def click(self) -> None:
+                self.clicked = True
+
+        class Page:
+            def __init__(self) -> None:
+                self.view_all = ViewAll()
+
+            def locator(self, selector: str) -> ViewAll:
+                return self.view_all
+
+        page = Page()
+
+        self.assertTrue(_expand_experience_if_collapsed(page))
+        self.assertTrue(page.view_all.clicked)
