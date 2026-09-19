@@ -41,7 +41,6 @@ class VacancyTraversal:
     _seen_pages: set[int] = field(default_factory=set)
     _page_bag: list[int] = field(default_factory=list)
     _groups: list[VacancyGroup] = field(default_factory=list)
-    _exhausted: bool = False
 
     def __post_init__(self) -> None:
         if not self.queries:
@@ -63,23 +62,10 @@ class VacancyTraversal:
 
         return self._known_page_count or 1
 
-    @property
-    def is_exhausted(self) -> bool:
-        """Сообщить, что обход остановлен после полного цикла без автосброса."""
-
-        return self._exhausted
-
-    def stop(self) -> None:
-        """Не начинать следующий цикл выдачи."""
-
-        self._exhausted = True
-
     def pop_group(self) -> VacancyGroup | None:
         return self._groups.pop(0) if self._groups else None
 
-    def next_search(self) -> SearchRequest | None:
-        if self._exhausted:
-            return None
+    def next_search(self) -> SearchRequest:
         if self._groups:
             raise RuntimeError("finish queued vacancy groups before selecting another page")
         if self._known_page_count is None:

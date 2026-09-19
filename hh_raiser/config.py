@@ -15,7 +15,6 @@ DEFAULT_ACTIVITY_INTERVAL_SECONDS = 300
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
 DEFAULT_UNIQUE_VACANCY_LIMIT = 1_000
 DEFAULT_REVISIT_AFTER_DAYS = 14
-DEFAULT_RESET_ON_EXHAUSTION = True
 DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
 DEFAULT_AUTO_RESPOND = True
@@ -31,7 +30,6 @@ class FileConfig:
     search_pages_per_cycle: int | None = None
     unique_vacancy_limit: int | None = None
     revisit_after_days: int | None = None
-    reset_on_exhaustion: bool | None = None
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
     auto_respond: bool | None = None
@@ -49,7 +47,6 @@ class RuntimeSettings:
     search_pages_per_cycle: int
     unique_vacancy_limit: int
     revisit_after_days: int
-    reset_on_exhaustion: bool
     vacancy_matching: bool
     match_threshold: int
     auto_respond: bool
@@ -102,7 +99,6 @@ def read_file_config(path: Path) -> FileConfig:
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
         unique_vacancy_limit = parser.getint("activity", "unique_vacancy_limit", fallback=None)
         revisit_after_days = parser.getint("activity", "revisit_after_days", fallback=None)
-        reset_on_exhaustion = parser.getboolean("activity", "reset_on_exhaustion", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
@@ -134,7 +130,6 @@ def read_file_config(path: Path) -> FileConfig:
         search_pages_per_cycle=search_pages_per_cycle,
         unique_vacancy_limit=unique_vacancy_limit,
         revisit_after_days=revisit_after_days,
-        reset_on_exhaustion=reset_on_exhaustion,
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
         auto_respond=auto_respond,
@@ -180,11 +175,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         getattr(args, "revisit_after_days", None)
         if getattr(args, "revisit_after_days", None) is not None
         else file_config.revisit_after_days
-    )
-    reset_on_exhaustion = (
-        getattr(args, "reset_on_exhaustion", None)
-        if getattr(args, "reset_on_exhaustion", None) is not None
-        else file_config.reset_on_exhaustion
     )
     vacancy_matching = (
         getattr(args, "vacancy_matching", None)
@@ -269,9 +259,6 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             resolved_revisit_days,
             minimum=0,
             maximum=3_650,
-        ),
-        reset_on_exhaustion=(
-            reset_on_exhaustion if reset_on_exhaustion is not None else DEFAULT_RESET_ON_EXHAUSTION
         ),
         vacancy_matching=(
             vacancy_matching if vacancy_matching is not None else DEFAULT_VACANCY_MATCHING

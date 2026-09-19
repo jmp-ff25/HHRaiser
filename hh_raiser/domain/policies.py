@@ -11,7 +11,6 @@ class ActivityPolicy:
     search_pages_per_cycle: int = 25
     unique_vacancy_limit: int = 1_000
     revisit_after_days: int = 14
-    reset_on_exhaustion: bool = True
     search_scrolls: int = 3
     vacancy_scrolls: int = 2
     scroll_pause_seconds: float = 1.5

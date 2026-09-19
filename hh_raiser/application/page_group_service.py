@@ -44,9 +44,6 @@ def run_vacancy_page_group(
 ) -> list[ActivityResult]:
     """Обработать одну группу, сохранив текущие запрос и позицию в пагинации."""
 
-    if traversal.is_exhausted:
-        return []
-
     results: list[ActivityResult] = []
     resume_text = traversal.resume_text
     if policy.vacancy_matching and not resume_text:
@@ -284,8 +281,6 @@ def _load_next_nonempty_group(
     initial_cycle = traversal.cycle
     while traversal.cycle == initial_cycle:
         request = traversal.next_search()
-        if request is None:
-            return None
         if request.cycle != initial_cycle:
             _finish_search_cycle(policy, traversal, history)
             return None
@@ -366,16 +361,7 @@ def _finish_search_cycle(
     traversal: VacancyTraversal,
     history: VacancyHistory,
 ) -> None:
-    """Закончить полный обход и применить правило автосброса истории."""
-
-    if not policy.reset_on_exhaustion:
-        traversal.stop()
-        LOGGER.info(
-            "Все поисковые запросы и их страницы пройдены; новый обход отключён "
-            "настройкой activity.reset_on_exhaustion.",
-            extra=event_data(LogEvent.SEARCH, search_cycle=traversal.cycle),
-        )
-        return
+    """Закончить полный обход и начать следующий с новым поколением истории."""
 
     generation = history.advance_generation()
     LOGGER.info(

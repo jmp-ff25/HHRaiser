@@ -146,7 +146,6 @@ class CliTests(unittest.TestCase):
                 "500",
                 "--revisit-after-days",
                 "30",
-                "--no-reset-on-exhaustion",
                 "--no-vacancy-matching",
                 "--match-threshold",
                 "68",
@@ -167,7 +166,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.search_pages_per_cycle, 40)
         self.assertEqual(args.unique_vacancy_limit, 500)
         self.assertEqual(args.revisit_after_days, 30)
-        self.assertFalse(args.reset_on_exhaustion)
         self.assertFalse(args.vacancy_matching)
         self.assertEqual(args.match_threshold, 68)
         self.assertTrue(args.auto_respond)

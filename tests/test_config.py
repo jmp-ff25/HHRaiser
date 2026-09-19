@@ -21,7 +21,6 @@ class ConfigTests(unittest.TestCase):
                 "unique_vacancy_limit = 750\n"
                 "revisit_after_days = 21\n"
                 "search_pages_per_cycle = 30\n"
-                "reset_on_exhaustion = false\n"
                 "[search_filters]\n"
                 "excluded_words =\n    senior\n    аналитик\n"
                 "search_fields =\n    name\n"
@@ -40,7 +39,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.unique_vacancy_limit, 750)
         self.assertEqual(config.revisit_after_days, 21)
         self.assertEqual(config.search_pages_per_cycle, 30)
-        self.assertFalse(config.reset_on_exhaustion)
         self.assertFalse(config.vacancy_matching)
         self.assertEqual(config.match_threshold, 67)
         self.assertTrue(config.auto_respond)

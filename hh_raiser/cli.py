@@ -215,7 +215,6 @@ def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
         search_pages_per_cycle=args.search_pages_per_cycle,
         unique_vacancy_limit=args.unique_vacancy_limit,
         revisit_after_days=args.revisit_after_days,
-        reset_on_exhaustion=args.reset_on_exhaustion,
         search_scrolls=args.search_scrolls,
         vacancy_scrolls=args.vacancy_scrolls,
         scroll_pause_seconds=args.scroll_pause_seconds,
@@ -384,12 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=lambda value: bounded_non_negative_int(value, maximum=3_650),
         default=None,
         help="Минимальный возраст просмотра перед повторным выбором вакансии.",
-    )
-    parser.add_argument(
-        "--reset-on-exhaustion",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Начинать новый цикл уникальных просмотров после полного прохода страниц выдачи.",
     )
     parser.add_argument(
         "--reset-vacancy-history",
@@ -643,7 +636,6 @@ def main(argv: list[str] | None = None) -> int:
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.unique_vacancy_limit = settings.unique_vacancy_limit
     args.revisit_after_days = settings.revisit_after_days
-    args.reset_on_exhaustion = settings.reset_on_exhaustion
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
     args.auto_respond = settings.auto_respond
