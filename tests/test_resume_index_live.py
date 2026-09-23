@@ -13,6 +13,7 @@ from hh_raiser.activities.resume_index_refresher import (
     trailing_period_count,
 )
 from hh_raiser.config import read_file_config
+from hh_raiser.domain.result import ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_DESCRIPTION_INPUT,
@@ -78,11 +79,11 @@ class ResumeIndexLiveTests(unittest.TestCase):
 
                     try:
                         added = refresh_resume_index(page, profile_dir=test_state_dir)
-                        self.assertTrue(added.is_success, added.detail)
+                        self.assertEqual(added.status, ActivityStatus.SUCCESS, added.detail)
                         self.assertTrue(added.metadata.get("marker_added"), added.detail)
 
                         restored = refresh_resume_index(page, profile_dir=test_state_dir)
-                        self.assertTrue(restored.is_success, restored.detail)
+                        self.assertEqual(restored.status, ActivityStatus.SUCCESS, restored.detail)
                         self.assertFalse(restored.metadata.get("marker_added"), restored.detail)
 
                         final_value = self._read_experience_description(
@@ -97,7 +98,7 @@ class ResumeIndexLiveTests(unittest.TestCase):
                         if marker_path.exists():
                             rollback = refresh_resume_index(page, profile_dir=test_state_dir)
                             self.assertTrue(
-                                rollback.is_success,
+                                rollback.status == ActivityStatus.SUCCESS,
                                 f"Не удалось безопасно откатить тестовую точку: {rollback.detail}",
                             )
 
