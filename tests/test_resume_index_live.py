@@ -74,22 +74,34 @@ class ResumeIndexLiveTests(unittest.TestCase):
                     (test_state_dir / "resume-refresh-sequence.json").write_text(
                         json.dumps({"next_target_index": target_index}), encoding="utf-8"
                     )
+                    marker_path = test_state_dir / "resume-refresh-marker.json"
 
-                    added = refresh_resume_index(page, profile_dir=test_state_dir)
-                    self.assertTrue(added.is_success, added.detail)
-                    self.assertTrue(added.metadata.get("marker_added"), added.detail)
+                    try:
+                        added = refresh_resume_index(page, profile_dir=test_state_dir)
+                        self.assertTrue(added.is_success, added.detail)
+                        self.assertTrue(added.metadata.get("marker_added"), added.detail)
 
-                    restored = refresh_resume_index(page, profile_dir=test_state_dir)
-                    self.assertTrue(restored.is_success, restored.detail)
-                    self.assertFalse(restored.metadata.get("marker_added"), restored.detail)
+                        restored = refresh_resume_index(page, profile_dir=test_state_dir)
+                        self.assertTrue(restored.is_success, restored.detail)
+                        self.assertFalse(restored.metadata.get("marker_added"), restored.detail)
 
-                    final_value = self._read_experience_description(page, resume_url, target_index)
-                    self.assertEqual(
-                        _normalized_fingerprint(final_value),
-                        _normalized_fingerprint(original_value),
-                        "После теста описание опыта не восстановилось до исходного состояния.",
-                    )
-                    self.assertFalse((test_state_dir / "resume-refresh-marker.json").exists())
+                        final_value = self._read_experience_description(
+                            page, resume_url, target_index
+                        )
+                        self.assertEqual(
+                            _normalized_fingerprint(final_value),
+                            _normalized_fingerprint(original_value),
+                            "После теста описание опыта не восстановилось до исходного состояния.",
+                        )
+                    finally:
+                        if marker_path.exists():
+                            rollback = refresh_resume_index(page, profile_dir=test_state_dir)
+                            self.assertTrue(
+                                rollback.is_success,
+                                f"Не удалось безопасно откатить тестовую точку: {rollback.detail}",
+                            )
+
+                    self.assertFalse(marker_path.exists())
             finally:
                 context.close()
 
