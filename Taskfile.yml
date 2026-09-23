@@ -190,6 +190,14 @@ tasks:
         {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  resume-index-e2e-ui:
+    desc: Визуально проверить обратимое добавление и удаление точки в резюме
+    env:
+      HH_LIVE_RESUME_INDEX_E2E: "1"
+      HH_LIVE_RESUME_INDEX_HEADLESS: "false"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
+
   full-activity-reset-history:
     desc: Начать новое поколение истории и запустить полный фоновый режим
     cmds:

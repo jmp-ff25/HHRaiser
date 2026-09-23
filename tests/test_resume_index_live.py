@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from playwright.sync_api import Page
 
 _LIVE_TEST_ENABLED = os.environ.get("HH_LIVE_RESUME_INDEX_E2E") == "1"
+_HEADLESS = os.environ.get("HH_LIVE_RESUME_INDEX_HEADLESS", "true").lower() != "false"
 _CONFIG_PATH = Path(os.environ.get("HH_LIVE_CONFIG_FILE", "state/main/hh-config.ini"))
 _PROFILE_DIR = Path(os.environ.get("HH_LIVE_PROFILE_DIR", "state/main/browser-profile"))
 
@@ -41,7 +42,8 @@ class ResumeIndexLiveTests(unittest.TestCase):
     Тест не использует рабочий каталог маркера: он создаёт временное состояние,
     добавляет одну точку и немедленно возвращает исходный текст. Его нельзя
     запускать одновременно с основным экземпляром HHRaiser, использующим тот же
-    профиль браузера.
+    профиль браузера. Значение ``HH_LIVE_RESUME_INDEX_HEADLESS=false`` открывает
+    видимый Chromium для ручного наблюдения за сценарием.
     """
 
     @classmethod
@@ -62,7 +64,7 @@ class ResumeIndexLiveTests(unittest.TestCase):
         with sync_playwright() as playwright:
             context = playwright.chromium.launch_persistent_context(
                 _PROFILE_DIR,
-                headless=True,
+                headless=_HEADLESS,
                 viewport={"width": 1440, "height": 1080},
             )
             try:
