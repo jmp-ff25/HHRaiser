@@ -11,6 +11,7 @@ from hh_raiser.browser import (
     close_context_quietly,
     is_closed_playwright_error,
     read_page_state,
+    wait_for_login_action,
     wait_for_manual_login,
     wait_for_page_close,
     wait_for_profile_raise_state,
@@ -163,6 +164,15 @@ class BrowserTests(unittest.TestCase):
 
     def test_login_landing_requires_opening_login_form(self) -> None:
         self.assertEqual(choose_login_action(LoginEvidence(landing_button=True)), "open-login-form")
+
+    def test_login_wait_recognizes_captcha_without_waiting_for_timeout(self) -> None:
+        class CaptchaPage:
+            url = "https://hh.ru/account/login"
+
+        self.assertEqual(
+            wait_for_login_action(CaptchaPage(), captcha_present=lambda: True),
+            "captcha",
+        )
 
     def test_phone_form_is_recognized(self) -> None:
         self.assertEqual(choose_login_action(LoginEvidence(phone_input=True)), "fill-phone")

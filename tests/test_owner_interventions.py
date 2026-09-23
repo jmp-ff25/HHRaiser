@@ -397,7 +397,30 @@ class CaptchaRecognitionTests(unittest.TestCase):
         heading = page.get_by_role.return_value.first
         heading.count.return_value = 0
 
-        self.assertFalse(CaptchaGuard.is_present(page))
+        controls = (MagicMock(), MagicMock(), MagicMock())
+        for control in controls:
+            control.count.return_value = 0
+
+        with patch(
+            "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+            return_value=controls,
+        ):
+            self.assertFalse(CaptchaGuard.is_present(page))
+
+    def test_recognizes_login_captcha_in_modal_by_complete_visible_form(self) -> None:
+        page = MagicMock()
+        page.url = "https://hh.ru/account/login"
+        page.get_by_role.return_value.first.count.return_value = 0
+        controls = (MagicMock(), MagicMock(), MagicMock())
+        for control in controls:
+            control.count.return_value = 1
+            control.is_visible.return_value = True
+
+        with patch(
+            "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+            return_value=controls,
+        ):
+            self.assertTrue(CaptchaGuard.is_present(page))
 
     def test_uses_accessible_captcha_controls_with_stable_fallbacks(self) -> None:
         page = MagicMock()

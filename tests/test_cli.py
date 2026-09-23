@@ -9,6 +9,7 @@ from pathlib import Path
 
 from hh_raiser.cli import (
     build_parser,
+    chromium_launch_args,
     graceful_interrupt,
     log_activity_results,
     next_wait_seconds,
@@ -122,6 +123,23 @@ class CliTests(unittest.TestCase):
         self.assertFalse(
             build_parser().parse_args(["--no-captcha-answer-source"]).captcha_answer_source
         )
+
+    def test_debug_cdp_port_opens_only_a_loopback_endpoint(self) -> None:
+        args = build_parser().parse_args(["--debug-cdp-port", "9222"])
+
+        self.assertEqual(args.debug_cdp_port, 9222)
+        self.assertEqual(
+            chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
+            [
+                "--start-maximized",
+                "--remote-debugging-address=127.0.0.1",
+                "--remote-debugging-port=9222",
+            ],
+        )
+
+    def test_debug_cdp_port_rejects_privileged_port(self) -> None:
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            build_parser().parse_args(["--debug-cdp-port", "443"])
 
     def test_full_activity_options_are_parsed(self) -> None:
         args = build_parser().parse_args(

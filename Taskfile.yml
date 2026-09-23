@@ -92,6 +92,21 @@ tasks:
         uv run --locked hh-resume-raiser --once --dry-run
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  init-session-cdp:
+    desc: Открыть Chromium с локальным CDP для отладки страницы входа
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once --dry-run --debug-cdp-port 9222
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  login-captcha-e2e:
+    desc: Проверить локаторы CAPTCHA в уже открытом CDP-сеансе без действий на странице
+    env:
+      HH_LIVE_LOGIN_CAPTCHA_E2E: "1"
+      HH_LIVE_CDP_PORT: "9222"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_login_captcha_live -v
+
   check-login:
     desc: Проверить учётные данные во временном профиле
     cmds:

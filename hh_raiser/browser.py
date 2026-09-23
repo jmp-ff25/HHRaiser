@@ -69,11 +69,20 @@ def read_login_evidence(page: Page) -> LoginEvidence:
     )
 
 
-def wait_for_login_action(page: Page, *, previous: str | None = None, timeout: float = 20) -> str:
+def wait_for_login_action(
+    page: Page,
+    *,
+    previous: str | None = None,
+    timeout: float = 20,
+    captcha_present: Callable[[], bool] | None = None,
+) -> str:
+    """Дождаться следующего шага входа, не откладывая распознавание CAPTCHA."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if "/applicant/profile/" in page.url:
             return "authenticated"
+        if captcha_present is not None and captcha_present():
+            return "captcha"
         action = choose_login_action(read_login_evidence(page))
         if action != "manual" and action != previous:
             return action
@@ -163,7 +172,7 @@ def login_if_needed(
     captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> None:
-    from hh_raiser.infrastructure.browser.captcha_guard import resolve_captcha
+    from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 
     page.goto(PROFILE_URL, wait_until="domcontentloaded")
     if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
@@ -171,10 +180,15 @@ def login_if_needed(
     if "/applicant/profile/" in page.url:
         return
     credentials = resolve_credentials(args)
-    action = wait_for_login_action(page)
+    captcha_present = lambda: CaptchaGuard.is_present(page)
+    action = wait_for_login_action(page, captcha_present=captcha_present)
     if action == "open-login-form":
         page.get_by_role("button", name="Войти", exact=True).click()
-        action = wait_for_login_action(page, previous="open-login-form")
+        action = wait_for_login_action(
+            page,
+            previous="open-login-form",
+            captcha_present=captcha_present,
+        )
     if action != "fill-phone":
         if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
             login_if_needed(
@@ -190,7 +204,14 @@ def login_if_needed(
         normalize_russian_phone(credentials.phone)
     )
     page.get_by_role("button", name=re.compile(r"Войти с\s+паролем", re.IGNORECASE)).first.click()
-    if wait_for_login_action(page, previous="fill-phone") != "fill-password":
+    if (
+        wait_for_login_action(
+            page,
+            previous="fill-phone",
+            captcha_present=captcha_present,
+        )
+        != "fill-password"
+    ):
         if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
             login_if_needed(
                 page,
@@ -208,7 +229,15 @@ def login_if_needed(
     password_input.fill(credentials.password)
     submit = page.get_by_role("button", name="Войти", exact=True).first
     submit.click() if submit.count() and submit.is_visible() else password_input.press("Enter")
-    if wait_for_login_action(page, previous="fill-password", timeout=30) != "authenticated":
+    if (
+        wait_for_login_action(
+            page,
+            previous="fill-password",
+            timeout=30,
+            captcha_present=captcha_present,
+        )
+        != "authenticated"
+    ):
         if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
             login_if_needed(
                 page,

@@ -208,6 +208,27 @@ def bounded_non_negative_float(value: str, *, maximum: float) -> float:
     return parsed
 
 
+def local_cdp_port(value: str) -> int:
+    """Принять непривилегированный локальный TCP-порт для отладки Chromium."""
+    port = int(value)
+    if not 1_024 <= port <= 65_535:
+        raise argparse.ArgumentTypeError("Порт CDP должен быть от 1024 до 65535")
+    return port
+
+
+def chromium_launch_args(*, debug_cdp_port: int | None) -> list[str]:
+    """Собрать аргументы Chromium, не открывая отладочный порт в сети."""
+    launch_args = ["--start-maximized"]
+    if debug_cdp_port is not None:
+        launch_args.extend(
+            [
+                "--remote-debugging-address=127.0.0.1",
+                f"--remote-debugging-port={debug_cdp_port}",
+            ]
+        )
+    return launch_args
+
+
 def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
     """Собрать единую политику из уже проверенных CLI- и INI-настроек."""
 
@@ -295,6 +316,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--debug-cdp-port",
+        type=local_cdp_port,
+        help=(
+            "Локальный порт CDP Chromium для диагностики; доступен только с 127.0.0.1. "
+            "Не используйте на сервере без отдельной защиты."
+        ),
+    )
     parser.add_argument(
         "--restart-browser-on-close",
         action="store_true",
@@ -440,9 +469,15 @@ def run_browser_context(
         str(args.profile_dir),
         headless=args.headless,
         no_viewport=True,
-        args=["--start-maximized"],
+        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
         timeout=30_000,
     )
+    if args.debug_cdp_port is not None:
+        LOGGER.info(
+            "Локальная диагностика CDP доступна по 127.0.0.1:%s.",
+            args.debug_cdp_port,
+            extra=event_data(LogEvent.BROWSER),
+        )
     LOGGER.info(
         "Chromium запущен; проверяю авторизацию HH.",
         extra=event_data(LogEvent.BROWSER),
@@ -665,7 +700,7 @@ def main(argv: list[str] | None = None) -> int:
                     temporary_dir,
                     headless=args.headless,
                     no_viewport=True,
-                    args=["--start-maximized"],
+                    args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
                     timeout=30_000,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
