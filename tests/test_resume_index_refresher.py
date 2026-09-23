@@ -87,7 +87,7 @@ class ResumeIndexRefresherTests(unittest.TestCase):
         )
         self.assertIsNone(_direct_resume_url("https://example.com/resume/example"))
 
-    def test_uses_only_the_single_resume_link_from_profile(self) -> None:
+    def test_uses_resume_link_from_card_with_configured_title(self) -> None:
         class Link:
             def get_attribute(self, name: str) -> str | None:
                 return "/resume/example" if name == "href" else None
@@ -97,18 +97,42 @@ class ResumeIndexRefresherTests(unittest.TestCase):
             first = Link()
 
         class Card:
+            def get_by_role(self, role: str, *, name: str, exact: bool) -> Headings:
+                self.role = role
+                self.name = name
+                self.exact = exact
+                return Headings(name == "Python-разработчик")
+
             def locator(self, selector: str) -> Links:
                 return Links()
 
+        class Headings:
+            def __init__(self, matches: bool) -> None:
+                self.matches = matches
+
+            def count(self) -> int:
+                return int(self.matches)
+
         class Cards:
-            count = lambda self: 1
-            first = Card()
+            def __init__(self) -> None:
+                self.card = Card()
+
+            def count(self) -> int:
+                return 1
+
+            def nth(self, index: int) -> Card:
+                self.index = index
+                return self.card
 
         class Page:
             def locator(self, selector: str) -> Cards:
                 return Cards()
 
-        self.assertEqual(_profile_resume_url(Page()), "https://hh.ru/resume/example")
+        self.assertEqual(
+            _profile_resume_url(Page(), "Python-разработчик"),
+            "https://hh.ru/resume/example",
+        )
+        self.assertIsNone(_profile_resume_url(Page(), "Другое резюме"))
 
     def test_expands_collapsed_experience_list_before_editing(self) -> None:
         class ViewAll:

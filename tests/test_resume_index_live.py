@@ -78,11 +78,19 @@ class ResumeIndexLiveTests(unittest.TestCase):
                     marker_path = test_state_dir / "resume-refresh-marker.json"
 
                     try:
-                        added = refresh_resume_index(page, profile_dir=test_state_dir)
+                        added = refresh_resume_index(
+                            page,
+                            profile_dir=test_state_dir,
+                            resume_title=self.resume_title,
+                        )
                         self.assertEqual(added.status, ActivityStatus.SUCCESS, added.detail)
                         self.assertTrue(added.metadata.get("marker_added"), added.detail)
 
-                        restored = refresh_resume_index(page, profile_dir=test_state_dir)
+                        restored = refresh_resume_index(
+                            page,
+                            profile_dir=test_state_dir,
+                            resume_title=self.resume_title,
+                        )
                         self.assertEqual(restored.status, ActivityStatus.SUCCESS, restored.detail)
                         self.assertFalse(restored.metadata.get("marker_added"), restored.detail)
 
@@ -96,7 +104,11 @@ class ResumeIndexLiveTests(unittest.TestCase):
                         )
                     finally:
                         if marker_path.exists():
-                            rollback = refresh_resume_index(page, profile_dir=test_state_dir)
+                            rollback = refresh_resume_index(
+                                page,
+                                profile_dir=test_state_dir,
+                                resume_title=self.resume_title,
+                            )
                             self.assertTrue(
                                 rollback.status == ActivityStatus.SUCCESS,
                                 f"Не удалось безопасно откатить тестовую точку: {rollback.detail}",

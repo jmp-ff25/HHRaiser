@@ -514,6 +514,7 @@ def run_browser_context(
                 refresh_result = refresh_resume_index(
                     page,
                     profile_dir=args.profile_dir,
+                    resume_title=args.resume_title,
                     captcha_guard=captcha_guard,
                     stop_requested=should_stop,
                 )

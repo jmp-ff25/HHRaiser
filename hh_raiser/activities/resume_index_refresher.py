@@ -27,7 +27,7 @@ from hh_raiser.models import MOSCOW
 from hh_raiser.storage import write_resume_refresh_attempt
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Page
+    from playwright.sync_api import Locator, Page
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -38,6 +38,9 @@ class ResumeMarkerState:
     target_index: int
     base_trailing_periods: int
     base_fingerprint: str
+
+
+_RESUME_DISCOVERY_ATTEMPTS = 2
 
 
 def _marker_path(profile_dir: Path) -> Path:
@@ -179,12 +182,18 @@ def _direct_resume_url(href: str | None) -> str | None:
     return candidate.geturl()
 
 
-def _profile_resume_url(page: Page) -> str | None:
-    """Find the only resume linked from the profile summary page."""
+def _profile_resume_url(page: Page, resume_title: str) -> str | None:
+    """Вернуть прямую ссылку на единственное резюме с указанным заголовком."""
     cards = page.locator(RESUME_CARD)
-    if cards.count() != 1:
+    matching_cards: list[Locator] = []
+    for index in range(cards.count()):
+        card = cards.nth(index)
+        heading = card.get_by_role("heading", name=resume_title, exact=True)
+        if heading.count() == 1:
+            matching_cards.append(card)
+    if len(matching_cards) != 1:
         return None
-    links = cards.first.locator(RESUME_DIRECT_LINK)
+    links = matching_cards[0].locator(RESUME_DIRECT_LINK)
     if links.count() != 1:
         return None
     return _direct_resume_url(links.first.get_attribute("href"))
@@ -199,10 +208,55 @@ def _expand_experience_if_collapsed(page: Page) -> bool:
     return True
 
 
+def _open_resume_experience_controls(
+    page: Page,
+    *,
+    resume_title: str,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[Locator, int] | None:
+    """Открыть кнопки опыта, повторив только безопасный этап загрузки страницы."""
+    for attempt in range(_RESUME_DISCOVERY_ATTEMPTS):
+        try:
+            page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            dismiss_hh_pro_modal(page)
+
+            resume_cards = page.locator(RESUME_CARD)
+            resume_cards.first.wait_for(state="visible", timeout=15_000)
+            resume_url = _profile_resume_url(page, resume_title)
+            if resume_url is None:
+                if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+                    return None
+                continue
+
+            page.goto(resume_url, wait_until="domcontentloaded")
+            if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                page.goto(resume_url, wait_until="domcontentloaded")
+            dismiss_hh_pro_modal(page)
+
+            _expand_experience_if_collapsed(page)
+            edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+            edit_buttons.first.wait_for(state="visible", timeout=15_000)
+        except PlaywrightError as error:
+            if is_closed_playwright_error(error) or attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+                raise
+            continue
+
+        button_count = edit_buttons.count()
+        if button_count:
+            return edit_buttons, button_count
+        if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+            return None
+    return None
+
+
 def refresh_resume_index(
     page: Page,
     *,
     profile_dir: Path,
+    resume_title: str,
     captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> ActivityResult:
@@ -211,43 +265,24 @@ def refresh_resume_index(
     marker = _read_marker(profile_dir)
     stage = "загрузка страницы резюме"
     try:
-        page.goto(PROFILE_URL, wait_until="domcontentloaded")
-        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
-            page.goto(PROFILE_URL, wait_until="domcontentloaded")
-        dismiss_hh_pro_modal(page)
-
-        resume_cards = page.locator(RESUME_CARD)
-        stage = "ожидание карточки резюме"
-        resume_cards.first.wait_for(state="visible", timeout=15_000)
-        stage = "поиск прямой страницы резюме"
-        resume_url = _profile_resume_url(page)
-        if resume_url is None:
+        stage = "загрузка выбранного резюме и его опыта"
+        controls = _open_resume_experience_controls(
+            page,
+            resume_title=resume_title,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if controls is None:
             return ActivityResult(
                 action=ActivityKind.REFRESH_RESUME_INDEX,
                 status=ActivityStatus.UNKNOWN,
                 detail=(
-                    "Не удалось однозначно определить страницу резюме в профиле; "
+                    f"В профиле не найдено единственное резюме «{resume_title}»; "
                     "резюме не изменено."
                 ),
             )
-        stage = "загрузка прямой страницы резюме"
-        page.goto(resume_url, wait_until="domcontentloaded")
-        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
-            page.goto(resume_url, wait_until="domcontentloaded")
-        dismiss_hh_pro_modal(page)
-
-        stage = "открытие полного списка опыта"
-        _expand_experience_if_collapsed(page)
-        edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+        edit_buttons, button_count = controls
         stage = "ожидание кнопок редактирования опыта"
-        edit_buttons.first.wait_for(state="visible", timeout=15_000)
-        button_count = edit_buttons.count()
-        if not button_count:
-            return ActivityResult(
-                action=ActivityKind.REFRESH_RESUME_INDEX,
-                status=ActivityStatus.UNKNOWN,
-                detail="Кнопки редактирования опыта не распознаны; резюме не изменено.",
-            )
 
         target_index = (
             marker.target_index if marker else _read_next_target(profile_dir) % button_count
