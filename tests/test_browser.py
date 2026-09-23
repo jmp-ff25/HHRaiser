@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import queue
 import unittest
 from unittest.mock import patch
 
 from hh_raiser.browser import (
+    ManualLoginCancelled,
+    _read_manual_login_answer,
     choose_login_action,
     close_context_quietly,
     is_closed_playwright_error,
     read_page_state,
+    wait_for_manual_login,
     wait_for_page_close,
     wait_for_profile_raise_state,
 )
@@ -15,6 +19,49 @@ from hh_raiser.models import LoginEvidence, PageState
 
 
 class BrowserTests(unittest.TestCase):
+    def test_closed_stdin_cancels_manual_login_without_traceback(self) -> None:
+        with patch("builtins.input", side_effect=EOFError):
+            self.assertIsNone(_read_manual_login_answer("Тест: "))
+
+    def test_closed_browser_cancels_manual_login_without_waiting_for_input(self) -> None:
+        class ClosedPage:
+            url = "https://hh.ru/account/login"
+
+            def is_closed(self) -> bool:
+                return True
+
+        with self.assertRaisesRegex(ManualLoginCancelled, "Окно браузера закрыто"):
+            wait_for_manual_login(ClosedPage())
+
+    def test_close_event_cancels_manual_login_while_waiting_for_input(self) -> None:
+        class ClosingPage:
+            url = "https://hh.ru/account/login"
+
+            def is_closed(self) -> bool:
+                return False
+
+            def wait_for_event(self, event: str, *, timeout: float) -> None:
+                self.event = event
+                self.timeout = timeout
+
+        page = ClosingPage()
+        with (
+            patch("hh_raiser.browser._manual_login_answers", return_value=queue.Queue()),
+            self.assertRaisesRegex(ManualLoginCancelled, "Окно браузера закрыто"),
+        ):
+            wait_for_manual_login(page)
+        self.assertEqual(page.event, "close")
+
+    def test_stop_request_cancels_manual_login_without_waiting_for_input(self) -> None:
+        class OpenPage:
+            url = "https://hh.ru/account/login"
+
+            def is_closed(self) -> bool:
+                return False
+
+        with self.assertRaisesRegex(ManualLoginCancelled, "остановлен пользователем"):
+            wait_for_manual_login(OpenPage(), stop_requested=lambda: True)
+
     def test_already_closed_page_interrupts_wait_immediately(self) -> None:
         class ClosedPage:
             def is_closed(self) -> bool:

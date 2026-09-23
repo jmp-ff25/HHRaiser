@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import queue
 import re
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -33,6 +35,11 @@ _CLOSED_PLAYWRIGHT_ERROR_MARKERS = (
 )
 _DOM_RECHECK_INTERVAL_MS = 1_000
 _PAGE_CLOSE_POLL_SECONDS = 0.25
+_MANUAL_LOGIN_POLL_SECONDS = 0.25
+
+
+class ManualLoginCancelled(RuntimeError):
+    """Ручной вход не завершён: пользователь остановил сценарий или закрыл окно."""
 
 
 def choose_login_action(evidence: LoginEvidence) -> str:
@@ -74,7 +81,31 @@ def wait_for_login_action(page: Page, *, previous: str | None = None, timeout: f
     return "manual"
 
 
-def wait_for_manual_login(page: Page) -> None:
+def _read_manual_login_answer(prompt: str) -> str | None:
+    """Прочитать ответ владельца, не превращая закрытый stdin в traceback."""
+    try:
+        return input(prompt).strip().lower()
+    except EOFError:
+        return None
+
+
+def _manual_login_answers() -> queue.Queue[str | None]:
+    """Запустить ожидание консольного ответа в daemon-потоке."""
+    answers: queue.Queue[str | None] = queue.Queue(maxsize=1)
+    prompt = "После завершения нажмите Enter; для выхода введите q: "
+    threading.Thread(
+        target=lambda: answers.put(_read_manual_login_answer(prompt)),
+        name="hh-manual-login-input",
+        daemon=True,
+    ).start()
+    return answers
+
+
+def wait_for_manual_login(
+    page: Page,
+    *,
+    stop_requested: Callable[[], bool] | None = None,
+) -> None:
     LOGGER.warning(
         "HH запросил код, CAPTCHA или дополнительное подтверждение.",
         extra=event_data(LogEvent.AUTH),
@@ -83,12 +114,38 @@ def wait_for_manual_login(page: Page) -> None:
         "Завершите вход в открытом окне браузера.",
         extra=event_data(LogEvent.AUTH),
     )
+
+    if stop_requested is not None and stop_requested():
+        raise ManualLoginCancelled("Вход в HH остановлен пользователем.")
+    if page.is_closed():
+        raise ManualLoginCancelled("Окно браузера закрыто до завершения входа в HH.")
+    if "/applicant/profile/" in page.url:
+        return
+
+    answers = _manual_login_answers()
     while True:
-        answer = input("После завершения нажмите Enter; для выхода введите q: ").strip().lower()
-        if answer == "q":
-            raise RuntimeError("Вход в HH отменён пользователем")
+        if stop_requested is not None and stop_requested():
+            raise ManualLoginCancelled("Вход в HH остановлен пользователем.")
+        if page.is_closed():
+            raise ManualLoginCancelled("Окно браузера закрыто до завершения входа в HH.")
         if "/applicant/profile/" in page.url:
             return
+        if wait_for_page_close(
+            page,
+            _MANUAL_LOGIN_POLL_SECONDS,
+            stop_requested=stop_requested,
+        ):
+            if stop_requested is not None and stop_requested():
+                raise ManualLoginCancelled("Вход в HH остановлен пользователем.")
+            raise ManualLoginCancelled("Окно браузера закрыто до завершения входа в HH.")
+        try:
+            answer = answers.get_nowait()
+        except queue.Empty:
+            continue
+        if answer is None:
+            raise ManualLoginCancelled("Ввод в терминале закрыт; вход в HH отменён.")
+        if answer == "q":
+            raise ManualLoginCancelled("Вход в HH отменён пользователем.")
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
         if wait_for_login_action(page, timeout=10) == "authenticated":
             return
@@ -127,7 +184,7 @@ def login_if_needed(
                 stop_requested=stop_requested,
             )
             return
-        wait_for_manual_login(page)
+        wait_for_manual_login(page, stop_requested=stop_requested)
         return
     page.locator('[data-qa="magritte-phone-input-national-number-input"]').first.fill(
         normalize_russian_phone(credentials.phone)
@@ -142,7 +199,7 @@ def login_if_needed(
                 stop_requested=stop_requested,
             )
             return
-        wait_for_manual_login(page)
+        wait_for_manual_login(page, stop_requested=stop_requested)
         return
     password_input = page.locator(
         '[data-qa="applicant-login-input-password"], '
@@ -160,7 +217,7 @@ def login_if_needed(
                 stop_requested=stop_requested,
             )
             return
-        wait_for_manual_login(page)
+        wait_for_manual_login(page, stop_requested=stop_requested)
 
 
 def find_raise_button(page: Page, resume_title: str) -> Locator | None:
