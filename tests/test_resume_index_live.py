@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,7 +14,7 @@ from hh_raiser.activities.resume_index_refresher import (
     trailing_period_count,
 )
 from hh_raiser.config import read_file_config
-from hh_raiser.domain.result import ActivityStatus
+from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.modal_guard import dismiss_hh_pro_modal
 from hh_raiser.infrastructure.hh.selectors import (
     EXPERIENCE_DESCRIPTION_INPUT,
@@ -30,6 +31,8 @@ _LIVE_TEST_ENABLED = os.environ.get("HH_LIVE_RESUME_INDEX_E2E") == "1"
 _HEADLESS = os.environ.get("HH_LIVE_RESUME_INDEX_HEADLESS", "true").lower() != "false"
 _CONFIG_PATH = Path(os.environ.get("HH_LIVE_CONFIG_FILE", "state/main/hh-config.ini"))
 _PROFILE_DIR = Path(os.environ.get("HH_LIVE_PROFILE_DIR", "state/main/browser-profile"))
+_CDP_PORT = int(os.environ.get("HH_LIVE_RESUME_INDEX_CDP_PORT", "0"))
+_DEBUG_PAUSE_SECONDS = int(os.environ.get("HH_LIVE_RESUME_INDEX_DEBUG_PAUSE_SECONDS", "0"))
 
 
 @unittest.skipUnless(
@@ -66,6 +69,7 @@ class ResumeIndexLiveTests(unittest.TestCase):
                 _PROFILE_DIR,
                 headless=_HEADLESS,
                 viewport={"width": 1440, "height": 1080},
+                args=self._debug_browser_args(),
             )
             try:
                 page = context.pages[0]
@@ -85,6 +89,7 @@ class ResumeIndexLiveTests(unittest.TestCase):
                             profile_dir=test_state_dir,
                             resume_title=self.resume_title,
                         )
+                        self._pause_for_cdp_inspection(page, added)
                         self.assertEqual(added.status, ActivityStatus.SUCCESS, added.detail)
                         self.assertTrue(added.metadata.get("marker_added"), added.detail)
 
@@ -93,6 +98,7 @@ class ResumeIndexLiveTests(unittest.TestCase):
                             profile_dir=test_state_dir,
                             resume_title=self.resume_title,
                         )
+                        self._pause_for_cdp_inspection(page, restored)
                         self.assertEqual(restored.status, ActivityStatus.SUCCESS, restored.detail)
                         self.assertFalse(restored.metadata.get("marker_added"), restored.detail)
 
@@ -119,6 +125,31 @@ class ResumeIndexLiveTests(unittest.TestCase):
                     self.assertFalse(marker_path.exists())
             finally:
                 context.close()
+
+    @staticmethod
+    def _debug_browser_args() -> list[str]:
+        """Открыть CDP только для локальной диагностики живого E2E-теста."""
+        if not _CDP_PORT:
+            return []
+        return [
+            "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={_CDP_PORT}",
+        ]
+
+    @staticmethod
+    def _pause_for_cdp_inspection(page: Page, outcome: ActivityResult) -> None:
+        """Оставить DOM доступным через CDP только при неподтверждённом исходе."""
+        if not _DEBUG_PAUSE_SECONDS or outcome.status == ActivityStatus.SUCCESS:
+            return
+        print(
+            "Отладочная пауза после неподтверждённого сохранения: "
+            f"{_DEBUG_PAUSE_SECONDS} сек.; CDP: http://127.0.0.1:{_CDP_PORT}; "
+            f"исход: {outcome.detail}; признаки: {outcome.metadata}",
+            flush=True,
+        )
+        deadline = time.monotonic() + _DEBUG_PAUSE_SECONDS
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(250)
 
     def _configured_resume_url(self, page: Page) -> str:
         page.goto(PROFILE_URL, wait_until="domcontentloaded", timeout=30_000)

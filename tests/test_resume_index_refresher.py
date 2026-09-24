@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock, patch
 
 from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
+    _confirm_saved_experience_description,
     _direct_resume_url,
     _edit_button_state,
     _expand_experience_if_collapsed,
     _profile_resume_url,
+    _read_saved_experience_description,
     _timeout_detail,
     build_marked_description,
     description_matches_marker_base,
@@ -163,3 +166,75 @@ class ResumeIndexRefresherTests(unittest.TestCase):
 
         self.assertTrue(_expand_experience_if_collapsed(page))
         self.assertTrue(page.view_all.clicked)
+
+    @patch("hh_raiser.activities.resume_index_refresher._open_resume_experience_controls")
+    def test_reloads_resume_before_reading_saved_experience(self, open_controls: MagicMock) -> None:
+        page = MagicMock()
+        edit_buttons = MagicMock()
+        edit_button = edit_buttons.nth.return_value
+        description = page.locator.return_value.first
+        description.input_value.return_value = "Сохранённый текст."
+        open_controls.return_value = (edit_buttons, 3)
+
+        result = _read_saved_experience_description(
+            page,
+            resume_title="Python-разработчик",
+            target_index=1,
+            captcha_guard=None,
+            stop_requested=None,
+        )
+
+        self.assertEqual(result, ("Сохранённый текст.", 3))
+        open_controls.assert_called_once_with(
+            page,
+            resume_title="Python-разработчик",
+            captcha_guard=None,
+            stop_requested=None,
+        )
+        edit_buttons.nth.assert_called_once_with(1)
+        edit_button.click.assert_called_once_with()
+        description.wait_for.assert_called_once_with(state="visible", timeout=15_000)
+
+    @patch("hh_raiser.activities.resume_index_refresher._read_saved_experience_description")
+    def test_confirmation_reloads_only_when_hh_still_shows_previous_value(
+        self, read_saved: MagicMock
+    ) -> None:
+        page = MagicMock()
+        read_saved.side_effect = [("Описание.", 3), ("Описание..", 3)]
+
+        result = _confirm_saved_experience_description(
+            page,
+            resume_title="Python-разработчик",
+            target_index=1,
+            button_count=3,
+            previous_value="Описание.",
+            expected_value="Описание..",
+            captcha_guard=None,
+            stop_requested=None,
+        )
+
+        self.assertEqual(result, ("Описание..", 3))
+        self.assertEqual(read_saved.call_count, 2)
+        page.wait_for_timeout.assert_called_once_with(1_000)
+
+    @patch("hh_raiser.activities.resume_index_refresher._read_saved_experience_description")
+    def test_confirmation_does_not_retry_unexpected_description(
+        self, read_saved: MagicMock
+    ) -> None:
+        page = MagicMock()
+        read_saved.return_value = ("Описание изменено владельцем.", 3)
+
+        result = _confirm_saved_experience_description(
+            page,
+            resume_title="Python-разработчик",
+            target_index=1,
+            button_count=3,
+            previous_value="Описание.",
+            expected_value="Описание..",
+            captcha_guard=None,
+            stop_requested=None,
+        )
+
+        self.assertEqual(result, ("Описание изменено владельцем.", 3))
+        read_saved.assert_called_once()
+        page.wait_for_timeout.assert_not_called()

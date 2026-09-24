@@ -213,6 +213,16 @@ tasks:
     cmds:
       - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
 
+  resume-index-e2e-cdp-ui:
+    desc: Запустить живой тест обновления резюме с локальной CDP-паузой для диагностики
+    env:
+      HH_LIVE_RESUME_INDEX_E2E: "1"
+      HH_LIVE_RESUME_INDEX_HEADLESS: "false"
+      HH_LIVE_RESUME_INDEX_CDP_PORT: "9223"
+      HH_LIVE_RESUME_INDEX_DEBUG_PAUSE_SECONDS: "300"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
+
   full-activity-reset-history:
     desc: Начать новое поколение истории и запустить полный фоновый режим
     cmds:

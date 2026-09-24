@@ -41,6 +41,8 @@ class ResumeMarkerState:
 
 
 _RESUME_DISCOVERY_ATTEMPTS = 2
+_SAVE_CONFIRMATION_ATTEMPTS = 3
+_SAVE_CONFIRMATION_WAIT_MS = 1_000
 
 
 def _marker_path(profile_dir: Path) -> Path:
@@ -252,6 +254,74 @@ def _open_resume_experience_controls(
     return None
 
 
+def _read_saved_experience_description(
+    page: Page,
+    *,
+    resume_title: str,
+    target_index: int,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[str, int] | None:
+    """Перезагрузить резюме и прочитать опыт после сохранения, не доверяя старому DOM."""
+    controls = _open_resume_experience_controls(
+        page,
+        resume_title=resume_title,
+        captcha_guard=captcha_guard,
+        stop_requested=stop_requested,
+    )
+    if controls is None:
+        return None
+
+    edit_buttons, button_count = controls
+    if target_index >= button_count:
+        return None
+
+    edit_buttons.nth(target_index).click()
+    description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
+    description.wait_for(state="visible", timeout=15_000)
+    return description.input_value(), button_count
+
+
+def _confirm_saved_experience_description(
+    page: Page,
+    *,
+    resume_title: str,
+    target_index: int,
+    button_count: int,
+    previous_value: str,
+    expected_value: str,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[str, int] | None:
+    """Перечитать свежую страницу, пока HH показывает значение до сохранения."""
+    previous_fingerprint = _normalized_fingerprint(previous_value)
+    expected_fingerprint = _normalized_fingerprint(expected_value)
+
+    for attempt in range(_SAVE_CONFIRMATION_ATTEMPTS):
+        observed = _read_saved_experience_description(
+            page,
+            resume_title=resume_title,
+            target_index=target_index,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if observed is None:
+            return None
+
+        saved_value, saved_button_count = observed
+        saved_fingerprint = _normalized_fingerprint(saved_value)
+        if saved_button_count != button_count or saved_fingerprint == expected_fingerprint:
+            return observed
+        if saved_fingerprint != previous_fingerprint or attempt + 1 == _SAVE_CONFIRMATION_ATTEMPTS:
+            return observed
+        if stop_requested is not None and stop_requested():
+            return observed
+
+        page.wait_for_timeout(_SAVE_CONFIRMATION_WAIT_MS)
+
+    return None
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -361,24 +431,58 @@ def refresh_resume_index(
         description.fill(updated_value)
         stage = "сохранение резюме"
         page.locator(PROFILE_SAVE_BUTTON).click()
-        stage = "закрытие формы после сохранения"
-        description.wait_for(state="hidden", timeout=15_000)
-        edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
-        stage = "повторное открытие сохранённого опыта"
-        edit_buttons.nth(target_index).click()
-        saved_description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
-        stage = "проверка сохранённого описания"
-        saved_description.wait_for(state="visible", timeout=15_000)
-        if _normalized_fingerprint(saved_description.input_value()) != _normalized_fingerprint(
-            updated_value
-        ):
+        # HH может сохранить опыт, оставив форму открытой. Единственным
+        # подтверждением служит повторное чтение данных с заново загруженной страницы.
+        stage = "повторная загрузка сохранённого опыта"
+        saved_experience = _confirm_saved_experience_description(
+            page,
+            resume_title=resume_title,
+            target_index=target_index,
+            button_count=button_count,
+            previous_value=current_value,
+            expected_value=updated_value,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if saved_experience is None:
             return ActivityResult(
                 action=ActivityKind.REFRESH_RESUME_INDEX,
                 status=ActivityStatus.UNKNOWN,
                 detail=(
-                    "После сохранения интерфейс показал другое описание; "
+                    "После сохранения не удалось заново открыть выбранный опыт; "
                     "локальный маркер сохранён для повторной проверки."
                 ),
+            )
+        saved_value, saved_button_count = saved_experience
+        if saved_button_count != button_count:
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "После сохранения изменился состав опыта; "
+                    "локальный маркер сохранён для повторной проверки."
+                ),
+            )
+        stage = "проверка сохранённого описания"
+        if _normalized_fingerprint(saved_value) != _normalized_fingerprint(updated_value):
+            previous_description_visible = _normalized_fingerprint(
+                saved_value
+            ) == _normalized_fingerprint(current_value)
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "После сохранения HH всё ещё показывает прежнее описание; "
+                    if previous_description_visible
+                    else "После сохранения HH показал неожиданное описание; "
+                )
+                + ("локальный маркер сохранён для повторной проверки."),
+                metadata={
+                    "previous_description_visible": previous_description_visible,
+                    "expected_trailing_periods": trailing_period_count(updated_value),
+                    "observed_trailing_periods": trailing_period_count(saved_value),
+                    "target_index": target_index,
+                },
             )
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
         if operation == "removed":

@@ -55,6 +55,18 @@ class TaskfileTests(unittest.TestCase):
         self.assertIsNotNone(task_match)
         self.assertIn('HH_LIVE_CDP_PORT: "9222"', task_match.group("task"))
 
+    def test_resume_index_debug_task_uses_loopback_cdp(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        task_match = re.search(
+            r"^  resume-index-e2e-cdp-ui:\n(?P<task>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+
+        self.assertIsNotNone(task_match)
+        self.assertIn('HH_LIVE_RESUME_INDEX_CDP_PORT: "9223"', task_match.group("task"))
+
     def test_full_activity_profiles_enable_safe_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 
