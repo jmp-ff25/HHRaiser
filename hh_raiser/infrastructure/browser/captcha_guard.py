@@ -207,12 +207,18 @@ class CaptchaGuard:
 
     @staticmethod
     def is_present(page: Page) -> bool:
-        """Распознать CAPTCHA HH до извлечения названия вакансии."""
+        """Распознать CAPTCHA HH по странице или полной видимой форме в модальном окне."""
 
         if urlsplit(page.url).path == _CAPTCHA_PATH:
             return True
         heading = page.get_by_role("heading", name=_CAPTCHA_HEADING, exact=True).first
-        return heading.count() > 0 and heading.is_visible(timeout=0)
+        if heading.count() > 0 and heading.is_visible(timeout=0):
+            return True
+        image, input_field, submit = captcha_controls(page)
+        return all(
+            control.count() > 0 and control.is_visible(timeout=0)
+            for control in (image, input_field, submit)
+        )
 
     def _wait_for_answer(
         self,

@@ -18,6 +18,7 @@ from hh_raiser.activities.resume_index_refresher import refresh_resume_index
 from hh_raiser.application.orchestrator import ActivityOrchestrator
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.browser import (
+    ManualLoginCancelled,
     NetworkCapture,
     close_context_quietly,
     is_closed_playwright_error,
@@ -207,6 +208,27 @@ def bounded_non_negative_float(value: str, *, maximum: float) -> float:
     return parsed
 
 
+def local_cdp_port(value: str) -> int:
+    """Принять непривилегированный локальный TCP-порт для отладки Chromium."""
+    port = int(value)
+    if not 1_024 <= port <= 65_535:
+        raise argparse.ArgumentTypeError("Порт CDP должен быть от 1024 до 65535")
+    return port
+
+
+def chromium_launch_args(*, debug_cdp_port: int | None) -> list[str]:
+    """Собрать аргументы Chromium, не открывая отладочный порт в сети."""
+    launch_args = ["--start-maximized"]
+    if debug_cdp_port is not None:
+        launch_args.extend(
+            [
+                "--remote-debugging-address=127.0.0.1",
+                f"--remote-debugging-port={debug_cdp_port}",
+            ]
+        )
+    return launch_args
+
+
 def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
     """Собрать единую политику из уже проверенных CLI- и INI-настроек."""
 
@@ -294,6 +316,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--debug-cdp-port",
+        type=local_cdp_port,
+        help=(
+            "Локальный порт CDP Chromium для диагностики; доступен только с 127.0.0.1. "
+            "Не используйте на сервере без отдельной защиты."
+        ),
+    )
     parser.add_argument(
         "--restart-browser-on-close",
         action="store_true",
@@ -439,9 +469,15 @@ def run_browser_context(
         str(args.profile_dir),
         headless=args.headless,
         no_viewport=True,
-        args=["--start-maximized"],
+        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
         timeout=30_000,
     )
+    if args.debug_cdp_port is not None:
+        LOGGER.info(
+            "Локальная диагностика CDP доступна по 127.0.0.1:%s.",
+            args.debug_cdp_port,
+            extra=event_data(LogEvent.BROWSER),
+        )
     LOGGER.info(
         "Chromium запущен; проверяю авторизацию HH.",
         extra=event_data(LogEvent.BROWSER),
@@ -514,6 +550,7 @@ def run_browser_context(
                 refresh_result = refresh_resume_index(
                     page,
                     profile_dir=args.profile_dir,
+                    resume_title=args.resume_title,
                     captcha_guard=captcha_guard,
                     stop_requested=should_stop,
                 )
@@ -652,33 +689,42 @@ def main(argv: list[str] | None = None) -> int:
 
     args.profile_dir.parent.mkdir(parents=True, exist_ok=True)
     if args.check_login:
-        with (
-            TemporaryDirectory(dir=args.profile_dir.parent, prefix="login-check-") as temporary_dir,
-            sync_playwright() as playwright,
-        ):
-            context = playwright.chromium.launch_persistent_context(
-                temporary_dir,
-                headless=args.headless,
-                no_viewport=True,
-                args=["--start-maximized"],
-                timeout=30_000,
-            )
-            page = context.pages[0] if context.pages else context.new_page()
-            maximize_browser_window(context, page, headless=args.headless)
-            try:
-                login_if_needed(page, args)
-                page.goto(PROFILE_URL, wait_until="domcontentloaded")
-                wait_for_profile_content(
-                    page,
-                    args.resume_title,
-                    page_refresh_seconds=args.page_refresh_seconds,
+        try:
+            with (
+                TemporaryDirectory(
+                    dir=args.profile_dir.parent, prefix="login-check-"
+                ) as temporary_dir,
+                sync_playwright() as playwright,
+            ):
+                context = playwright.chromium.launch_persistent_context(
+                    temporary_dir,
+                    headless=args.headless,
+                    no_viewport=True,
+                    args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
+                    timeout=30_000,
                 )
-                LOGGER.info(
-                    "Авторизация подтверждена. Временный профиль проверки удалён.",
-                    extra=event_data(LogEvent.AUTH),
-                )
-            finally:
-                close_context_quietly(context)
+                page = context.pages[0] if context.pages else context.new_page()
+                maximize_browser_window(context, page, headless=args.headless)
+                try:
+                    login_if_needed(page, args)
+                    page.goto(PROFILE_URL, wait_until="domcontentloaded")
+                    wait_for_profile_content(
+                        page,
+                        args.resume_title,
+                        page_refresh_seconds=args.page_refresh_seconds,
+                    )
+                    LOGGER.info(
+                        "Авторизация подтверждена. Временный профиль проверки удалён.",
+                        extra=event_data(LogEvent.AUTH),
+                    )
+                finally:
+                    close_context_quietly(context)
+        except KeyboardInterrupt:
+            LOGGER.info("Остановлено пользователем.", extra=event_data(LogEvent.SYSTEM))
+            return 0
+        except ManualLoginCancelled as error:
+            LOGGER.info("%s", error, extra=event_data(LogEvent.AUTH))
+            return 0
         return 0
     args.profile_dir.mkdir(parents=True, exist_ok=True)
     with graceful_interrupt() as shutdown_requested:
@@ -702,6 +748,9 @@ def main(argv: list[str] | None = None) -> int:
                     "Ожидание ответа владельца остановлено; программа завершена.",
                     extra=event_data(LogEvent.SYSTEM),
                 )
+                return 0
+            except ManualLoginCancelled as error:
+                LOGGER.info("%s", error, extra=event_data(LogEvent.AUTH))
                 return 0
             except ManualCaptchaRequired as error:
                 LOGGER.error("%s", error, extra=event_data(LogEvent.AUTH))

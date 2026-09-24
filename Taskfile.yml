@@ -92,6 +92,21 @@ tasks:
         uv run --locked hh-resume-raiser --once --dry-run
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  init-session-cdp:
+    desc: Открыть Chromium с локальным CDP для отладки страницы входа
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once --dry-run --debug-cdp-port 9222
+        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  login-captcha-e2e:
+    desc: Проверить локаторы CAPTCHA в уже открытом CDP-сеансе без действий на странице
+    env:
+      HH_LIVE_LOGIN_CAPTCHA_E2E: "1"
+      HH_LIVE_CDP_PORT: "9222"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_login_captcha_live -v
+
   check-login:
     desc: Проверить учётные данные во временном профиле
     cmds:
@@ -189,6 +204,24 @@ tasks:
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}}
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
+
+  resume-index-e2e-ui:
+    desc: Визуально проверить обратимое добавление и удаление точки в резюме
+    env:
+      HH_LIVE_RESUME_INDEX_E2E: "1"
+      HH_LIVE_RESUME_INDEX_HEADLESS: "false"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
+
+  resume-index-e2e-cdp-ui:
+    desc: Запустить живой тест обновления резюме с локальной CDP-паузой для диагностики
+    env:
+      HH_LIVE_RESUME_INDEX_E2E: "1"
+      HH_LIVE_RESUME_INDEX_HEADLESS: "false"
+      HH_LIVE_RESUME_INDEX_CDP_PORT: "9223"
+      HH_LIVE_RESUME_INDEX_DEBUG_PAUSE_SECONDS: "300"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
 
   full-activity-reset-history:
     desc: Начать новое поколение истории и запустить полный фоновый режим

@@ -27,7 +27,7 @@ from hh_raiser.models import MOSCOW
 from hh_raiser.storage import write_resume_refresh_attempt
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Page
+    from playwright.sync_api import Locator, Page
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -38,6 +38,11 @@ class ResumeMarkerState:
     target_index: int
     base_trailing_periods: int
     base_fingerprint: str
+
+
+_RESUME_DISCOVERY_ATTEMPTS = 2
+_SAVE_CONFIRMATION_ATTEMPTS = 3
+_SAVE_CONFIRMATION_WAIT_MS = 1_000
 
 
 def _marker_path(profile_dir: Path) -> Path:
@@ -179,12 +184,18 @@ def _direct_resume_url(href: str | None) -> str | None:
     return candidate.geturl()
 
 
-def _profile_resume_url(page: Page) -> str | None:
-    """Find the only resume linked from the profile summary page."""
+def _profile_resume_url(page: Page, resume_title: str) -> str | None:
+    """Вернуть прямую ссылку на единственное резюме с указанным заголовком."""
     cards = page.locator(RESUME_CARD)
-    if cards.count() != 1:
+    matching_cards: list[Locator] = []
+    for index in range(cards.count()):
+        card = cards.nth(index)
+        heading = card.get_by_role("heading", name=resume_title, exact=True)
+        if heading.count() == 1:
+            matching_cards.append(card)
+    if len(matching_cards) != 1:
         return None
-    links = cards.first.locator(RESUME_DIRECT_LINK)
+    links = matching_cards[0].locator(RESUME_DIRECT_LINK)
     if links.count() != 1:
         return None
     return _direct_resume_url(links.first.get_attribute("href"))
@@ -199,10 +210,123 @@ def _expand_experience_if_collapsed(page: Page) -> bool:
     return True
 
 
+def _open_resume_experience_controls(
+    page: Page,
+    *,
+    resume_title: str,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[Locator, int] | None:
+    """Открыть кнопки опыта, повторив только безопасный этап загрузки страницы."""
+    for attempt in range(_RESUME_DISCOVERY_ATTEMPTS):
+        try:
+            page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            dismiss_hh_pro_modal(page)
+
+            resume_cards = page.locator(RESUME_CARD)
+            resume_cards.first.wait_for(state="visible", timeout=15_000)
+            resume_url = _profile_resume_url(page, resume_title)
+            if resume_url is None:
+                if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+                    return None
+                continue
+
+            page.goto(resume_url, wait_until="domcontentloaded")
+            if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                page.goto(resume_url, wait_until="domcontentloaded")
+            dismiss_hh_pro_modal(page)
+
+            _expand_experience_if_collapsed(page)
+            edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+            edit_buttons.first.wait_for(state="visible", timeout=15_000)
+        except PlaywrightError as error:
+            if is_closed_playwright_error(error) or attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+                raise
+            continue
+
+        button_count = edit_buttons.count()
+        if button_count:
+            return edit_buttons, button_count
+        if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+            return None
+    return None
+
+
+def _read_saved_experience_description(
+    page: Page,
+    *,
+    resume_title: str,
+    target_index: int,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[str, int] | None:
+    """Перезагрузить резюме и прочитать опыт после сохранения, не доверяя старому DOM."""
+    controls = _open_resume_experience_controls(
+        page,
+        resume_title=resume_title,
+        captcha_guard=captcha_guard,
+        stop_requested=stop_requested,
+    )
+    if controls is None:
+        return None
+
+    edit_buttons, button_count = controls
+    if target_index >= button_count:
+        return None
+
+    edit_buttons.nth(target_index).click()
+    description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
+    description.wait_for(state="visible", timeout=15_000)
+    return description.input_value(), button_count
+
+
+def _confirm_saved_experience_description(
+    page: Page,
+    *,
+    resume_title: str,
+    target_index: int,
+    button_count: int,
+    previous_value: str,
+    expected_value: str,
+    captcha_guard: CaptchaResolver | None,
+    stop_requested: Callable[[], bool] | None,
+) -> tuple[str, int] | None:
+    """Перечитать свежую страницу, пока HH показывает значение до сохранения."""
+    previous_fingerprint = _normalized_fingerprint(previous_value)
+    expected_fingerprint = _normalized_fingerprint(expected_value)
+
+    for attempt in range(_SAVE_CONFIRMATION_ATTEMPTS):
+        observed = _read_saved_experience_description(
+            page,
+            resume_title=resume_title,
+            target_index=target_index,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if observed is None:
+            return None
+
+        saved_value, saved_button_count = observed
+        saved_fingerprint = _normalized_fingerprint(saved_value)
+        if saved_button_count != button_count or saved_fingerprint == expected_fingerprint:
+            return observed
+        if saved_fingerprint != previous_fingerprint or attempt + 1 == _SAVE_CONFIRMATION_ATTEMPTS:
+            return observed
+        if stop_requested is not None and stop_requested():
+            return observed
+
+        page.wait_for_timeout(_SAVE_CONFIRMATION_WAIT_MS)
+
+    return None
+
+
 def refresh_resume_index(
     page: Page,
     *,
     profile_dir: Path,
+    resume_title: str,
     captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
 ) -> ActivityResult:
@@ -211,43 +335,24 @@ def refresh_resume_index(
     marker = _read_marker(profile_dir)
     stage = "загрузка страницы резюме"
     try:
-        page.goto(PROFILE_URL, wait_until="domcontentloaded")
-        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
-            page.goto(PROFILE_URL, wait_until="domcontentloaded")
-        dismiss_hh_pro_modal(page)
-
-        resume_cards = page.locator(RESUME_CARD)
-        stage = "ожидание карточки резюме"
-        resume_cards.first.wait_for(state="visible", timeout=15_000)
-        stage = "поиск прямой страницы резюме"
-        resume_url = _profile_resume_url(page)
-        if resume_url is None:
+        stage = "загрузка выбранного резюме и его опыта"
+        controls = _open_resume_experience_controls(
+            page,
+            resume_title=resume_title,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if controls is None:
             return ActivityResult(
                 action=ActivityKind.REFRESH_RESUME_INDEX,
                 status=ActivityStatus.UNKNOWN,
                 detail=(
-                    "Не удалось однозначно определить страницу резюме в профиле; "
+                    f"В профиле не найдено единственное резюме «{resume_title}»; "
                     "резюме не изменено."
                 ),
             )
-        stage = "загрузка прямой страницы резюме"
-        page.goto(resume_url, wait_until="domcontentloaded")
-        if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
-            page.goto(resume_url, wait_until="domcontentloaded")
-        dismiss_hh_pro_modal(page)
-
-        stage = "открытие полного списка опыта"
-        _expand_experience_if_collapsed(page)
-        edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+        edit_buttons, button_count = controls
         stage = "ожидание кнопок редактирования опыта"
-        edit_buttons.first.wait_for(state="visible", timeout=15_000)
-        button_count = edit_buttons.count()
-        if not button_count:
-            return ActivityResult(
-                action=ActivityKind.REFRESH_RESUME_INDEX,
-                status=ActivityStatus.UNKNOWN,
-                detail="Кнопки редактирования опыта не распознаны; резюме не изменено.",
-            )
 
         target_index = (
             marker.target_index if marker else _read_next_target(profile_dir) % button_count
@@ -326,24 +431,58 @@ def refresh_resume_index(
         description.fill(updated_value)
         stage = "сохранение резюме"
         page.locator(PROFILE_SAVE_BUTTON).click()
-        stage = "закрытие формы после сохранения"
-        description.wait_for(state="hidden", timeout=15_000)
-        edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
-        stage = "повторное открытие сохранённого опыта"
-        edit_buttons.nth(target_index).click()
-        saved_description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
-        stage = "проверка сохранённого описания"
-        saved_description.wait_for(state="visible", timeout=15_000)
-        if _normalized_fingerprint(saved_description.input_value()) != _normalized_fingerprint(
-            updated_value
-        ):
+        # HH может сохранить опыт, оставив форму открытой. Единственным
+        # подтверждением служит повторное чтение данных с заново загруженной страницы.
+        stage = "повторная загрузка сохранённого опыта"
+        saved_experience = _confirm_saved_experience_description(
+            page,
+            resume_title=resume_title,
+            target_index=target_index,
+            button_count=button_count,
+            previous_value=current_value,
+            expected_value=updated_value,
+            captcha_guard=captcha_guard,
+            stop_requested=stop_requested,
+        )
+        if saved_experience is None:
             return ActivityResult(
                 action=ActivityKind.REFRESH_RESUME_INDEX,
                 status=ActivityStatus.UNKNOWN,
                 detail=(
-                    "После сохранения интерфейс показал другое описание; "
+                    "После сохранения не удалось заново открыть выбранный опыт; "
                     "локальный маркер сохранён для повторной проверки."
                 ),
+            )
+        saved_value, saved_button_count = saved_experience
+        if saved_button_count != button_count:
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "После сохранения изменился состав опыта; "
+                    "локальный маркер сохранён для повторной проверки."
+                ),
+            )
+        stage = "проверка сохранённого описания"
+        if _normalized_fingerprint(saved_value) != _normalized_fingerprint(updated_value):
+            previous_description_visible = _normalized_fingerprint(
+                saved_value
+            ) == _normalized_fingerprint(current_value)
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "После сохранения HH всё ещё показывает прежнее описание; "
+                    if previous_description_visible
+                    else "После сохранения HH показал неожиданное описание; "
+                )
+                + ("локальный маркер сохранён для повторной проверки."),
+                metadata={
+                    "previous_description_visible": previous_description_visible,
+                    "expected_trailing_periods": trailing_period_count(updated_value),
+                    "observed_trailing_periods": trailing_period_count(saved_value),
+                    "target_index": target_index,
+                },
             )
         page.goto(PROFILE_URL, wait_until="domcontentloaded")
         if operation == "removed":

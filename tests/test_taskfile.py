@@ -31,6 +31,42 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn('PROFILE_DIR: "{{.STATE_DIR}}/browser-profile"', taskfile)
         self.assertIn('PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/', taskfile)
 
+    def test_cdp_session_task_uses_only_local_debugging_port(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        task_match = re.search(
+            r"^  init-session-cdp:\n(?P<task>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+
+        self.assertIsNotNone(task_match)
+        self.assertIn("--debug-cdp-port 9222", task_match.group("task"))
+
+    def test_live_captcha_task_uses_existing_local_cdp_session(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        task_match = re.search(
+            r"^  login-captcha-e2e:\n(?P<task>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+
+        self.assertIsNotNone(task_match)
+        self.assertIn('HH_LIVE_CDP_PORT: "9222"', task_match.group("task"))
+
+    def test_resume_index_debug_task_uses_loopback_cdp(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+
+        task_match = re.search(
+            r"^  resume-index-e2e-cdp-ui:\n(?P<task>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+
+        self.assertIsNotNone(task_match)
+        self.assertIn('HH_LIVE_RESUME_INDEX_CDP_PORT: "9223"', task_match.group("task"))
+
     def test_full_activity_profiles_enable_safe_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 
