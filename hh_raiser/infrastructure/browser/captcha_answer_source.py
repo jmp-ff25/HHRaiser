@@ -7,13 +7,14 @@ import configparser
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 import cv2
 import numpy as np
-from openai import OpenAI
+from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
@@ -45,6 +46,7 @@ class CaptchaSolutione:
         self.client: OpenAI | None = None
         self.model = ""
         self.prompt = ""
+        self._image_cache: tuple[bytes, list[dict[str, Any]]] | None = None
         parser = configparser.RawConfigParser(interpolation=None)
         try:
             with config_path.open(encoding="utf-8") as stream:
@@ -92,17 +94,91 @@ class CaptchaSolutione:
         return value
 
     def get_answer(self, request: CaptchaRequest) -> str | None:
-        image = cv2.imdecode(np.frombuffer(request.image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if self.client is None:
+            return None
+        content = self._image_content(request.image_bytes)
+        if content is None:
+            return None
+
+        LOGGER.info("Распознаю CAPTCHA через %s.", self.model, extra=event_data(LogEvent.CAPTCHA))
+        messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        for attempt in range(1, self.RESPONSE_ATTEMPTS + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0,
+                    max_tokens=1_024,
+                )
+                choice = response.choices[0]
+                raw_answer = choice.message.content or ""
+                answer = self._parse_answer(raw_answer)
+            except (APIConnectionError, InternalServerError, RateLimitError) as error:
+                LOGGER.warning(
+                    "Временная ошибка Gemini %s: запрос %s из %s.",
+                    type(error).__name__,
+                    attempt,
+                    self.RESPONSE_ATTEMPTS,
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                if attempt < self.RESPONSE_ATTEMPTS:
+                    time.sleep(attempt)
+                continue
+            except Exception as error:  # noqa: BLE001 — ошибка OCR не должна останавливать браузер.
+                LOGGER.warning(
+                    "Запрос Gemini завершился ошибкой %s.",
+                    type(error).__name__,
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                return None
+            if answer is not None:
+                LOGGER.info(
+                    "Gemini вернул ответ CAPTCHA длиной %s символов.",
+                    len(answer),
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+                return answer
+            if attempt < self.RESPONSE_ATTEMPTS:
+                if choice.finish_reason == "length":
+                    LOGGER.info(
+                        "Ответ Gemini достиг лимита токенов без JSON; уточняю запрос %s из %s.",
+                        attempt,
+                        self.RESPONSE_ATTEMPTS,
+                        extra=event_data(LogEvent.CAPTCHA),
+                    )
+                else:
+                    LOGGER.info(
+                        "Gemini не вернул JSON с текстом; уточняю запрос %s из %s.",
+                        attempt,
+                        self.RESPONSE_ATTEMPTS,
+                        extra=event_data(LogEvent.CAPTCHA),
+                    )
+                messages = [
+                    *messages,
+                    {"role": "assistant", "content": raw_answer[:1_000]},
+                    {
+                        "role": "user",
+                        "content": 'Верни только JSON с непустым строковым полем "text". Без пояснений.',
+                    },
+                ]
+            else:
+                LOGGER.warning(
+                    "Gemini не вернул JSON с текстом за %s запроса.",
+                    self.RESPONSE_ATTEMPTS,
+                    extra=event_data(LogEvent.CAPTCHA),
+                )
+        return None
+
+    def _image_content(self, image_bytes: bytes) -> list[dict[str, Any]] | None:
+        if self._image_cache is not None and self._image_cache[0] == image_bytes:
+            return self._image_cache[1]
+        image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         if image is None:
             LOGGER.warning(
                 "Не удалось прочитать изображение CAPTCHA.",
                 extra=event_data(LogEvent.CAPTCHA),
             )
             return None
-        if self.client is None:
-            return None
-
-        LOGGER.info("Распознаю CAPTCHA через %s.", self.model, extra=event_data(LogEvent.CAPTCHA))
         content: list[dict[str, Any]] = [{"type": "text", "text": self.prompt}]
         for label, visual in [("Исходная CAPTCHA", image), *self._straighten_text(image)]:
             content.extend(
@@ -112,38 +188,8 @@ class CaptchaSolutione:
                 ]
             )
 
-        for attempt in range(1, self.RESPONSE_ATTEMPTS + 1):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": content}],
-                    temperature=0,
-                    max_tokens=1_024,
-                )
-                answer = self._parse_answer(response.choices[0].message.content or "")
-            except Exception as error:  # noqa: BLE001 — CAPTCHA остаётся необязательной автоматизацией.
-                LOGGER.warning(
-                    "Запрос Gemini завершился ошибкой %s: попытка %s из %s.",
-                    type(error).__name__,
-                    attempt,
-                    self.RESPONSE_ATTEMPTS,
-                    extra=event_data(LogEvent.CAPTCHA),
-                )
-                continue
-            if answer is not None:
-                LOGGER.info(
-                    "Gemini вернул ответ CAPTCHA длиной %s символов.",
-                    len(answer),
-                    extra=event_data(LogEvent.CAPTCHA),
-                )
-                return answer
-            LOGGER.warning(
-                "Gemini вернул некорректный ответ CAPTCHA: попытка %s из %s.",
-                attempt,
-                self.RESPONSE_ATTEMPTS,
-                extra=event_data(LogEvent.CAPTCHA),
-            )
-        return None
+        self._image_cache = (image_bytes, content)
+        return content
 
     def _straighten_text(self, image: np.ndarray) -> list[tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

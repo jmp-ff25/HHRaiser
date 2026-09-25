@@ -138,10 +138,9 @@ class CaptchaGuard:
             extra=event_data(LogEvent.CAPTCHA),
         )
         _record_captcha_event(self.store, "detected")
+        if self._try_gemini_answers(page, should_stop):
+            return True
         while self.is_present(page):
-            if self._try_gemini_answers(page, should_stop):
-                return True
-
             image, input_field, submit = captcha_controls(page)
             try:
                 for control in (image, input_field, submit):
@@ -238,15 +237,7 @@ class CaptchaGuard:
             page.wait_for_timeout(_POLL_MILLISECONDS)
 
     def _wait_for_result(self, page: Page, stop_requested: Callable[[], bool]) -> bool:
-        elapsed = 0
-        while elapsed < _RESULT_WAIT_MILLISECONDS:
-            if stop_requested() or page.is_closed():
-                raise OwnerInterventionCancelled
-            page.wait_for_timeout(_POLL_MILLISECONDS)
-            elapsed += _POLL_MILLISECONDS
-            if not self.is_present(page):
-                return True
-        return False
+        return _wait_for_captcha_result(page, stop_requested)
 
     @staticmethod
     def _write_private(path: Path, content: bytes) -> None:
@@ -287,12 +278,13 @@ def _try_gemini_answers(
     wait_for_result: Callable[[Page, Callable[[], bool]], bool] | None = None,
     audit_store: OwnerInterventionStore | None = None,
 ) -> bool:
-    """Проверить до пяти ответов Gemini перед доступным ручным fallback."""
+    """Сделать до пяти раундов CAPTCHA; источник сам повторяет запрос без ответа."""
 
     if answer_source is None:
         _record_captcha_event(audit_store, "gemini_disabled")
         return False
 
+    submitted_answers: set[tuple[bytes, str]] = set()
     for attempt in range(1, _GEMINI_ATTEMPTS + 1):
         if stop_requested() or page.is_closed() or not CaptchaGuard.is_present(page):
             return False
@@ -305,17 +297,23 @@ def _try_gemini_answers(
             _record_captcha_event(audit_store, "gemini_controls_unavailable", attempt=attempt)
             return False
 
+        image_bytes = image.screenshot(type="png")
         answer = _answer_from_source(
             answer_source,
             CaptchaRequest(
                 challenge_id=uuid.uuid4().hex,
-                image_bytes=image.screenshot(type="png"),
+                image_bytes=image_bytes,
                 prompt="Введите текст с изображения. Регистр обычно не важен.",
             ),
         )
         if answer is None:
             _record_captcha_event(audit_store, "gemini_no_answer", attempt=attempt)
             continue
+        if (image_bytes, answer) in submitted_answers:
+            _record_captcha_event(audit_store, "gemini_duplicate_answer", attempt=attempt)
+            _record_captcha_event(audit_store, "gemini_fallback")
+            return False
+        submitted_answers.add((image_bytes, answer))
         LOGGER.info(
             "Пробую ответ Gemini: попытка %s из %s.",
             attempt,
@@ -333,7 +331,10 @@ def _try_gemini_answers(
         result_waiter = wait_for_result or _wait_for_captcha_result
         if result_waiter(page, stop_requested):
             _record_captcha_event(audit_store, "gemini_resolved", attempt=attempt)
-            LOGGER.info("Ответ Gemini принят HH.", extra=event_data(LogEvent.CAPTCHA))
+            LOGGER.info(
+                "CAPTCHA исчезла после ответа Gemini; проверяю дальнейшее состояние HH.",
+                extra=event_data(LogEvent.CAPTCHA),
+            )
             return True
         LOGGER.warning(
             "HH не принял ответ Gemini: попытка %s из %s.",
@@ -377,15 +378,17 @@ def _record_captcha_event(
 
 
 def _wait_for_captcha_result(page: Page, stop_requested: Callable[[], bool]) -> bool:
-    """Дождаться принятия автоматического ответа HH."""
+    """Дождаться устойчивого исчезновения CAPTCHA после отправки ответа."""
 
     elapsed = 0
+    absent_polls = 0
     while elapsed < _RESULT_WAIT_MILLISECONDS:
         if stop_requested() or page.is_closed():
             raise OwnerInterventionCancelled
         page.wait_for_timeout(_POLL_MILLISECONDS)
         elapsed += _POLL_MILLISECONDS
-        if not CaptchaGuard.is_present(page):
+        absent_polls = absent_polls + 1 if not CaptchaGuard.is_present(page) else 0
+        if absent_polls >= 2:
             return True
     return False
 

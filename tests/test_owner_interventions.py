@@ -189,6 +189,8 @@ class CaptchaSolutioneTests(unittest.TestCase):
                 )
 
         self.assertEqual(answer, "верный ответ")
+        self.assertEqual(openai.call_args.kwargs["base_url"], "https://polza.ai/api/v1")
+        self.assertEqual(openai.call_args.kwargs["max_retries"], 0)
         request = openai.return_value.chat.completions.create.call_args.kwargs
         self.assertEqual(
             request["messages"][0]["content"][0]["text"],
@@ -214,7 +216,9 @@ class CaptchaSolutioneTests(unittest.TestCase):
                 patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
             ):
                 invalid_response = MagicMock()
-                invalid_response.choices = [MagicMock(message=MagicMock(content="не JSON"))]
+                invalid_response.choices = [
+                    MagicMock(message=MagicMock(content="не JSON"), finish_reason="length")
+                ]
                 valid_response = MagicMock()
                 valid_response.choices = [
                     MagicMock(message=MagicMock(content='{"text":"верный ответ"}'))
@@ -223,13 +227,117 @@ class CaptchaSolutioneTests(unittest.TestCase):
                     invalid_response,
                     valid_response,
                 ]
+                with patch(
+                    "hh_raiser.infrastructure.browser.captcha_answer_source.LOGGER.warning"
+                ) as warning:
+                    source = CaptchaSolutione(config_path)
+                    request = CaptchaRequest("one", buffer.tobytes(), "Введите текст")
+                    answer = source.get_answer(request)
 
+        self.assertEqual(answer, "верный ответ")
+        warning.assert_not_called()
+        self.assertEqual(openai.return_value.chat.completions.create.call_count, 2)
+        retry_messages = openai.return_value.chat.completions.create.call_args.kwargs["messages"]
+        self.assertEqual(retry_messages[-1]["role"], "user")
+        self.assertIn('"text"', retry_messages[-1]["content"])
+
+    def test_exhausts_three_api_requests_without_json(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "ocr_prompt = Распознай текст\n"
+                "api_url = https://polza.ai/api/v1\n"
+                "model = google/gemini-3.8-flash\n",
+                encoding="utf-8",
+            )
+            image = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, buffer = cv2.imencode(".png", image)
+            self.assertTrue(succeeded)
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_answer_source.LOGGER.warning"
+                ) as warning,
+            ):
+                response = openai.return_value.chat.completions.create.return_value
+                response.choices = [
+                    MagicMock(message=MagicMock(content="не JSON"), finish_reason="length")
+                ]
                 answer = CaptchaSolutione(config_path).get_answer(
                     CaptchaRequest("one", buffer.tobytes(), "Введите текст")
                 )
+            self.assertIsNone(answer)
+            self.assertEqual(openai.return_value.chat.completions.create.call_count, 3)
+            warning.assert_called_once()
 
-        self.assertEqual(answer, "верный ответ")
-        self.assertEqual(openai.return_value.chat.completions.create.call_count, 2)
+    def test_retries_transient_api_error_but_stops_on_other_errors(self) -> None:
+        class TransientError(Exception):
+            pass
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "ocr_prompt = Распознай текст\n"
+                "api_url = https://polza.ai/api/v1\n"
+                "model = google/gemini-3.8-flash\n",
+                encoding="utf-8",
+            )
+            image = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, buffer = cv2.imencode(".png", image)
+            self.assertTrue(succeeded)
+            request = CaptchaRequest("one", buffer.tobytes(), "Введите текст")
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_answer_source.APIConnectionError",
+                    TransientError,
+                ),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.time.sleep") as wait,
+            ):
+                response = MagicMock()
+                response.choices = [MagicMock(message=MagicMock(content='{"text":"ответ"}'))]
+                call = openai.return_value.chat.completions.create
+                call.side_effect = [TransientError(), response]
+                self.assertEqual(CaptchaSolutione(config_path).get_answer(request), "ответ")
+                self.assertEqual(call.call_count, 2)
+                wait.assert_called_once_with(1)
+
+                call.reset_mock()
+                call.side_effect = RuntimeError("bad request")
+                self.assertIsNone(CaptchaSolutione(config_path).get_answer(request))
+                call.assert_called_once()
+
+    def test_reuses_prepared_images_for_unchanged_captcha(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "ocr_prompt = Распознай текст\n"
+                "api_url = https://polza.ai/api/v1\n"
+                "model = google/gemini-3.8-flash\n",
+                encoding="utf-8",
+            )
+            image = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, buffer = cv2.imencode(".png", image)
+            self.assertTrue(succeeded)
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+            ):
+                response = openai.return_value.chat.completions.create.return_value
+                response.choices = [MagicMock(message=MagicMock(content='{"text":"ответ"}'))]
+                source = CaptchaSolutione(config_path)
+                with patch.object(source, "_straighten_text", wraps=source._straighten_text) as straighten:
+                    for _ in range(2):
+                        self.assertEqual(
+                            source.get_answer(CaptchaRequest("one", buffer.tobytes(), "Введите текст")),
+                            "ответ",
+                        )
+                    straighten.assert_called_once()
 
 
 class GeminiCaptchaFallbackTests(unittest.TestCase):
@@ -241,6 +349,7 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
             page = MagicMock()
             page.is_closed.return_value = False
             image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+            image.screenshot.side_effect = [f"image-{i}".encode() for i in range(5)]
 
             with (
                 patch(
@@ -263,6 +372,150 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         self.assertEqual(events[-1].event, "gemini_fallback")
         submitted = [event for event in events if event.event == "gemini_answer_submitted"]
         self.assertEqual([event.answer for event in submitted], ["ответ"] * 5)
+
+    def test_does_not_repeat_unchanged_captcha_without_answer(self) -> None:
+        source = MagicMock()
+        source.get_answer.return_value = None
+        page = MagicMock()
+        page.is_closed.return_value = False
+        image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+        image.screenshot.return_value = b"same-image"
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                return_value=True,
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                return_value=(image, input_field, submit),
+            ),
+        ):
+            from hh_raiser.infrastructure.browser.captcha_guard import _try_gemini_answers
+
+            self.assertFalse(
+                _try_gemini_answers(page, source, lambda: False, fallback_message="ручной ввод")
+            )
+        self.assertEqual(source.get_answer.call_count, 5)
+        input_field.fill.assert_not_called()
+
+    def test_retries_same_image_after_invalid_model_responses(self) -> None:
+        from hh_raiser.infrastructure.browser.captcha_guard import _try_gemini_answers
+
+        source = MagicMock()
+        source.get_answer.side_effect = [None, "ответ"]
+        page = MagicMock()
+        page.is_closed.return_value = False
+        image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+        image.screenshot.return_value = b"same-image"
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                return_value=True,
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                return_value=(image, input_field, submit),
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard._wait_for_captcha_result",
+                return_value=True,
+            ),
+        ):
+            self.assertTrue(
+                _try_gemini_answers(page, source, lambda: False, fallback_message="ручной ввод")
+            )
+        self.assertEqual(source.get_answer.call_count, 2)
+        input_field.fill.assert_called_once_with("ответ")
+
+    def test_three_invalid_api_responses_then_next_captcha_round(self) -> None:
+        from hh_raiser.infrastructure.browser.captcha_guard import _try_gemini_answers
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "hh-config.ini"
+            config_path.write_text(
+                "[captchasolution]\n"
+                "ocr_prompt = Распознай текст\n"
+                "api_url = https://polza.ai/api/v1\n"
+                "model = google/gemini-3.8-flash\n",
+                encoding="utf-8",
+            )
+            image_array = np.full((20, 40, 3), 255, dtype=np.uint8)
+            succeeded, image_buffer = cv2.imencode(".png", image_array)
+            self.assertTrue(succeeded)
+            page = MagicMock()
+            page.is_closed.return_value = False
+            image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+            image.screenshot.return_value = image_buffer.tobytes()
+            with (
+                patch.dict(os.environ, {"HHRAISER_POLZA_API_KEY": "test-key"}),
+                patch("hh_raiser.infrastructure.browser.captcha_answer_source.OpenAI") as openai,
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                    return_value=True,
+                ),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                    return_value=(image, input_field, submit),
+                ),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard._wait_for_captcha_result",
+                    return_value=True,
+                ),
+            ):
+                invalid = MagicMock()
+                invalid.choices = [
+                    MagicMock(message=MagicMock(content="не JSON"), finish_reason="length")
+                ]
+                valid = MagicMock()
+                valid.choices = [MagicMock(message=MagicMock(content='{"text":"ответ"}'))]
+                create = openai.return_value.chat.completions.create
+                create.side_effect = [invalid, invalid, invalid, valid]
+                self.assertTrue(
+                    _try_gemini_answers(
+                        page,
+                        CaptchaSolutione(config_path),
+                        lambda: False,
+                        fallback_message="ручной ввод",
+                    )
+                )
+            self.assertEqual(create.call_count, 4)
+            input_field.fill.assert_called_once_with("ответ")
+
+    def test_does_not_submit_same_answer_twice_for_unchanged_image(self) -> None:
+        source = MagicMock()
+        source.get_answer.return_value = "ответ"
+        guard = CaptchaGuard(MagicMock(), answer_source=source)
+        page = MagicMock()
+        page.is_closed.return_value = False
+        image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+        image.screenshot.return_value = b"same-image"
+        with (
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                return_value=True,
+            ),
+            patch(
+                "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                return_value=(image, input_field, submit),
+            ),
+            patch.object(guard, "_wait_for_result", return_value=False),
+        ):
+            self.assertFalse(guard._try_gemini_answers(page, lambda: False))
+        self.assertEqual(source.get_answer.call_count, 2)
+        input_field.fill.assert_called_once()
+
+    def test_result_waits_for_two_consecutive_absent_checks(self) -> None:
+        from hh_raiser.infrastructure.browser.captcha_guard import _wait_for_captcha_result
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        with patch(
+            "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+            side_effect=[False, True, False, False],
+        ) as present:
+            self.assertTrue(_wait_for_captcha_result(page, lambda: False))
+        self.assertEqual(present.call_count, 4)
+        self.assertEqual(page.wait_for_timeout.call_count, 4)
 
     def test_manual_fallback_does_not_call_gemini_after_five_attempts(self) -> None:
         with TemporaryDirectory() as directory:
@@ -290,6 +543,29 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
 
         source.get_answer.assert_not_called()
 
+    def test_manual_rejection_does_not_restart_automatic_attempts(self) -> None:
+        with TemporaryDirectory() as directory:
+            guard = CaptchaGuard(OwnerInterventionStore(Path(directory)), answer_source=MagicMock())
+            page = MagicMock()
+            page.is_closed.return_value = False
+            image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
+            image.screenshot.return_value = b"png"
+            with (
+                patch.object(guard, "_try_gemini_answers", return_value=False) as automatic,
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.CaptchaGuard.is_present",
+                    return_value=True,
+                ),
+                patch(
+                    "hh_raiser.infrastructure.browser.captcha_guard.captcha_controls",
+                    return_value=(image, input_field, submit),
+                ),
+                patch.object(guard, "_wait_for_answer", return_value="ручной ответ"),
+                patch.object(guard, "_wait_for_result", side_effect=[False, True]),
+            ):
+                self.assertTrue(guard.resolve_if_present(page))
+            automatic.assert_called_once()
+
     def test_missing_config_logs_error_and_returns_no_answer(self) -> None:
         with (
             TemporaryDirectory() as directory,
@@ -310,7 +586,7 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         page = MagicMock()
         page.is_closed.return_value = False
         image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
-        image.screenshot.return_value = b"png"
+        image.screenshot.side_effect = [f"image-{i}".encode() for i in range(5)]
         guard = ManualCaptchaGuard(headless=False, answer_source=source)
 
         with (
@@ -338,7 +614,7 @@ class GeminiCaptchaFallbackTests(unittest.TestCase):
         page = MagicMock()
         page.is_closed.return_value = False
         image, input_field, submit = MagicMock(), MagicMock(), MagicMock()
-        image.screenshot.return_value = b"png"
+        image.screenshot.side_effect = [f"image-{i}".encode() for i in range(5)]
         guard = ManualCaptchaGuard(headless=True, answer_source=source)
 
         with (

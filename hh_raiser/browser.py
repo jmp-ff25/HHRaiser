@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 _CLOSED_PLAYWRIGHT_ERROR_MARKERS = (
@@ -36,6 +37,7 @@ _CLOSED_PLAYWRIGHT_ERROR_MARKERS = (
 _DOM_RECHECK_INTERVAL_MS = 1_000
 _PAGE_CLOSE_POLL_SECONDS = 0.25
 _MANUAL_LOGIN_POLL_SECONDS = 0.25
+_PROFILE_NAVIGATION_ATTEMPTS = 3
 
 
 class ManualLoginCancelled(RuntimeError):
@@ -165,6 +167,25 @@ def wait_for_manual_login(
         )
 
 
+def _goto_profile_during_login(page: Page) -> None:
+    """Повторить переход, если его прервал редирект HH после CAPTCHA."""
+    for attempt in range(_PROFILE_NAVIGATION_ATTEMPTS):
+        try:
+            page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            return
+        except PlaywrightError as error:
+            if (
+                "net::ERR_ABORTED" not in str(error)
+                or page.is_closed()
+                or attempt + 1 == _PROFILE_NAVIGATION_ATTEMPTS
+            ):
+                raise
+            page.wait_for_timeout(500)
+            if "/applicant/profile/" in page.url:
+                page.wait_for_load_state("domcontentloaded")
+                return
+
+
 def login_if_needed(
     page: Page,
     args: argparse.Namespace,
@@ -174,9 +195,9 @@ def login_if_needed(
 ) -> None:
     from hh_raiser.infrastructure.browser.captcha_guard import CaptchaGuard, resolve_captcha
 
-    page.goto(PROFILE_URL, wait_until="domcontentloaded")
+    _goto_profile_during_login(page)
     if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
-        page.goto(PROFILE_URL, wait_until="domcontentloaded")
+        _goto_profile_during_login(page)
     if "/applicant/profile/" in page.url:
         return
     credentials = resolve_credentials(args)
