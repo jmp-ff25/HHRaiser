@@ -43,6 +43,12 @@ class ResumeMarkerState:
 _RESUME_DISCOVERY_ATTEMPTS = 2
 _SAVE_CONFIRMATION_ATTEMPTS = 3
 _SAVE_CONFIRMATION_WAIT_MS = 1_000
+_SAVE_RESPONSE_TIMEOUT_MS = 30_000
+_PROFILE_UPDATE_PATH = "/profile/shards/profile/update"
+_COOKIE_INFORMER = '[data-qa="cookies-policy-informer"]'
+_COOKIE_DISMISS_ATTEMPTS = 4
+_DESCRIPTION_STABILITY_ATTEMPTS = 3
+_DESCRIPTION_STABILITY_WAIT_MS = 5_000
 
 
 def _marker_path(profile_dir: Path) -> Path:
@@ -322,6 +328,44 @@ def _confirm_saved_experience_description(
     return None
 
 
+def _dismiss_cookie_informer(page: Page) -> None:
+    """Дождаться рабочего интерфейса HH до изменения текста опыта."""
+    cookie_informer = page.locator(_COOKIE_INFORMER)
+    for attempt in range(_COOKIE_DISMISS_ATTEMPTS):
+        if not cookie_informer.count() or not cookie_informer.is_visible(timeout=0):
+            return
+        cookie_informer.get_by_role("button", name="Понятно", exact=True).click()
+        try:
+            cookie_informer.wait_for(state="hidden", timeout=2_000)
+            return
+        except PlaywrightTimeoutError:
+            if attempt + 1 == _COOKIE_DISMISS_ATTEMPTS:
+                raise
+
+
+def _submit_resume_and_wait(page: Page) -> int:
+    """Дождаться ответа HH до ухода со страницы редактирования опыта."""
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and urlsplit(response.url).path == _PROFILE_UPDATE_PATH
+        ),
+        timeout=_SAVE_RESPONSE_TIMEOUT_MS,
+    ) as response_info:
+        page.locator(PROFILE_SAVE_BUTTON).click()
+    return response_info.value.status
+
+
+def _fill_stable_experience_description(description: Locator, value: str, page: Page) -> bool:
+    """Повторить ввод, если поздняя загрузка HH восстановила старый текст."""
+    for _ in range(_DESCRIPTION_STABILITY_ATTEMPTS):
+        description.fill(value)
+        page.wait_for_timeout(_DESCRIPTION_STABILITY_WAIT_MS)
+        if description.input_value() == value:
+            return True
+    return False
+
+
 def refresh_resume_index(
     page: Page,
     *,
@@ -370,6 +414,8 @@ def refresh_resume_index(
         description = page.locator(EXPERIENCE_DESCRIPTION_INPUT).first
         stage = "ожидание поля описания опыта"
         description.wait_for(state="visible", timeout=15_000)
+        stage = "подготовка редактора опыта"
+        _dismiss_cookie_informer(page)
         stage = "чтение описания опыта"
         current_value = description.input_value()
         if not current_value.strip():
@@ -428,9 +474,28 @@ def refresh_resume_index(
             operation = "added"
 
         stage = "внесение контрольной точки"
-        description.fill(updated_value)
+        if not _fill_stable_experience_description(description, updated_value, page):
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=(
+                    "HH сбрасывает изменённое описание до сохранения; "
+                    "локальный маркер сохранён для повторной проверки."
+                ),
+            )
         stage = "сохранение резюме"
-        page.locator(PROFILE_SAVE_BUTTON).click()
+        save_status = _submit_resume_and_wait(page)
+        if not 200 <= save_status < 300:
+            return ActivityResult(
+                action=ActivityKind.REFRESH_RESUME_INDEX,
+                status=ActivityStatus.UNKNOWN,
+                detail=f"HH отклонил сохранение резюме (HTTP {save_status}); локальный маркер сохранён.",
+            )
+        try:
+            page.locator(PROFILE_SAVE_BUTTON).wait_for(state="hidden", timeout=5_000)
+        except PlaywrightTimeoutError:
+            # HH иногда оставляет редактор открытым после ответа об успешном сохранении.
+            pass
         # HH может сохранить опыт, оставив форму открытой. Единственным
         # подтверждением служит повторное чтение данных с заново загруженной страницы.
         stage = "повторная загрузка сохранённого опыта"

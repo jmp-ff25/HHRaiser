@@ -4,8 +4,11 @@ import queue
 import unittest
 from unittest.mock import patch
 
+from playwright.sync_api import Error as PlaywrightError
+
 from hh_raiser.browser import (
     ManualLoginCancelled,
+    _goto_profile_during_login,
     _read_manual_login_answer,
     choose_login_action,
     close_context_quietly,
@@ -20,6 +23,64 @@ from hh_raiser.models import LoginEvidence, PageState
 
 
 class BrowserTests(unittest.TestCase):
+    def test_profile_navigation_recovers_from_hh_redirect_after_captcha(self) -> None:
+        class RedirectingPage:
+            def __init__(self) -> None:
+                self.url = "https://hh.ru/account/login"
+                self.navigations = 0
+                self.waits = 0
+
+            def goto(self, url: str, *, wait_until: str) -> None:
+                self.navigations += 1
+                if self.navigations == 1:
+                    raise PlaywrightError(f"Page.goto: net::ERR_ABORTED at {url}")
+
+            def is_closed(self) -> bool:
+                return False
+
+            def wait_for_timeout(self, milliseconds: int) -> None:
+                self.waits += 1
+
+        page = RedirectingPage()
+        _goto_profile_during_login(page)
+        self.assertEqual(page.navigations, 2)
+        self.assertEqual(page.waits, 1)
+
+    def test_profile_navigation_uses_completed_hh_redirect_without_reloading(self) -> None:
+        class RedirectingPage:
+            url = "https://hh.ru/account/login"
+            navigations = 0
+            load_waits = 0
+
+            def goto(self, url: str, *, wait_until: str) -> None:
+                self.navigations += 1
+                raise PlaywrightError(f"Page.goto: net::ERR_ABORTED at {url}")
+
+            def is_closed(self) -> bool:
+                return False
+
+            def wait_for_timeout(self, milliseconds: int) -> None:
+                self.url = "https://hh.ru/applicant/profile/me"
+
+            def wait_for_load_state(self, state: str) -> None:
+                self.load_waits += 1
+
+        page = RedirectingPage()
+        _goto_profile_during_login(page)
+        self.assertEqual(page.navigations, 1)
+        self.assertEqual(page.load_waits, 1)
+
+    def test_profile_navigation_does_not_retry_unrelated_errors(self) -> None:
+        class FailingPage:
+            def goto(self, url: str, *, wait_until: str) -> None:
+                raise PlaywrightError("Page.goto: net::ERR_CONNECTION_REFUSED")
+
+            def is_closed(self) -> bool:
+                return False
+
+        with self.assertRaisesRegex(PlaywrightError, "ERR_CONNECTION_REFUSED"):
+            _goto_profile_during_login(FailingPage())
+
     def test_closed_stdin_cancels_manual_login_without_traceback(self) -> None:
         with patch("builtins.input", side_effect=EOFError):
             self.assertIsNone(_read_manual_login_answer("Тест: "))

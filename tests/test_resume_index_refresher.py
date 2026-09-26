@@ -7,10 +7,13 @@ from hh_raiser.activities.resume_index_refresher import (
     ResumeMarkerState,
     _confirm_saved_experience_description,
     _direct_resume_url,
+    _dismiss_cookie_informer,
     _edit_button_state,
     _expand_experience_if_collapsed,
+    _fill_stable_experience_description,
     _profile_resume_url,
     _read_saved_experience_description,
+    _submit_resume_and_wait,
     _timeout_detail,
     build_marked_description,
     description_matches_marker_base,
@@ -21,6 +24,102 @@ from hh_raiser.infrastructure.hh.selectors import EXPERIENCE_EDIT_BUTTON
 
 
 class ResumeIndexRefresherTests(unittest.TestCase):
+    def test_refills_description_after_hh_replaces_it_during_loading(self) -> None:
+        class Description:
+            value = "Старый текст."
+            fills = 0
+
+            def fill(self, value):
+                self.value = value
+                self.fills += 1
+
+            def input_value(self):
+                return self.value
+
+        class Page:
+            waits = 0
+
+            def wait_for_timeout(self, milliseconds):
+                self.waits += 1
+                if self.waits == 1:
+                    description.value = "Старый текст."
+
+        description = Description()
+        page = Page()
+        self.assertTrue(_fill_stable_experience_description(description, "Новый текст.", page))
+        self.assertEqual(description.fills, 2)
+        self.assertEqual(page.waits, 2)
+        self.assertEqual(description.value, "Новый текст.")
+
+    def test_waits_for_profile_update_response_before_confirming_save(self) -> None:
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        events = []
+        response = SimpleNamespace(status=200)
+
+        class Page:
+            @contextmanager
+            def expect_response(self, predicate, *, timeout):
+                self.assert_predicate = predicate
+                self.timeout = timeout
+                events.append("listening")
+                yield SimpleNamespace(value=response)
+
+            def locator(self, selector):
+                if selector == '[data-qa="cookies-policy-informer"]':
+                    return SimpleNamespace(count=lambda: 0)
+                return SimpleNamespace(click=lambda: events.append("clicked"))
+
+        page = Page()
+        self.assertEqual(_submit_resume_and_wait(page), 200)
+        self.assertEqual(events, ["listening", "clicked"])
+        self.assertEqual(page.timeout, 30_000)
+        self.assertTrue(
+            page.assert_predicate(
+                SimpleNamespace(
+                    request=SimpleNamespace(method="POST"),
+                    url="https://hh.ru/profile/shards/profile/update",
+                )
+            )
+        )
+
+    def test_retries_cookie_banner_until_it_disappears(self) -> None:
+        from types import SimpleNamespace
+
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        events = []
+
+        class CookieBanner:
+            clicks = 0
+
+            def count(self):
+                return 1
+
+            def is_visible(self, *, timeout):
+                return self.clicks < 2
+
+            def get_by_role(self, role, *, name, exact):
+                def click():
+                    self.clicks += 1
+                    events.append("cookie_clicked")
+
+                return SimpleNamespace(click=click)
+
+            def wait_for(self, *, state, timeout):
+                if self.clicks == 1:
+                    raise PlaywrightTimeoutError("Cookie banner still visible")
+                events.append("cookie_hidden")
+
+        class Page:
+            def locator(self, selector):
+                if selector == '[data-qa="cookies-policy-informer"]':
+                    return CookieBanner()
+
+        _dismiss_cookie_informer(Page())
+        self.assertEqual(events, ["cookie_clicked", "cookie_clicked", "cookie_hidden"])
+
     def test_marker_adds_exactly_one_period(self) -> None:
         marked, state = build_marked_description("Описание.", target_index=2)
 
