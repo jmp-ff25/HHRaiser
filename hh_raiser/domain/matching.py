@@ -62,6 +62,10 @@ class MatchAssessment:
     bm25f_relevance: float
     skills_coverage: float
     lexical_similarity: float
+    semantic_verdict: str | None = None
+    semantic_reason: str | None = None
+    semantic_gaps: tuple[str, ...] = ()
+    semantic_mode: str = "lexical"
 
 
 class VacancyCompatibilityMatcher:

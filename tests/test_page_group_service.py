@@ -30,6 +30,147 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
+    def test_view_only_mode_never_enters_response_checks(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                vacancy_matching=True,
+                matching_mode="semantic",
+                auto_respond=False,
+            )
+            url = "https://hh.ru/vacancy/123"
+            outcome = VacancyViewOutcome(
+                url=url,
+                result=result(
+                    ActivityKind.VIEW_VACANCY,
+                    vacancy_title="Python backend",
+                    match_evaluated=True,
+                    match_score=30,
+                    match_accepted=False,
+                    semantic_mode="semantic",
+                    semantic_verdict="unfit",
+                ),
+            )
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.read_resume_text",
+                    return_value="Python backend",
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    return_value=[outcome],
+                ),
+                patch("hh_raiser.application.page_group_service.respond_to_vacancy") as respond,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+                self.assertLogs("hh_resume_raiser", level="INFO") as captured,
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
+            respond.assert_not_called()
+            self.assertNotIn("Отклик на вакансию", "\n".join(captured.output))
+
+    def test_fullstack_vacancy_is_viewed_but_never_auto_responded(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1, vacancy_matching=False, auto_respond=True
+            )
+            url = "https://hh.ru/vacancy/123"
+            outcome = VacancyViewOutcome(
+                url=url,
+                result=result(
+                    ActivityKind.VIEW_VACANCY,
+                    vacancy_title="Fullstack-разработчик (AI-Enhanced)",
+                ),
+            )
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    return_value=[outcome],
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.respond_to_vacancy",
+                ) as respond,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                results = run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python backend"
+                )
+            respond.assert_not_called()
+            self.assertTrue(any(item.action == ActivityKind.VIEW_VACANCY for item in results))
+
+    def test_semantic_verdict_controls_response_even_when_lexical_score_is_low(self) -> None:
+        for verdict, should_respond in (("fit", True), ("unsure", False)):
+            with self.subTest(verdict=verdict), TemporaryDirectory() as directory:
+                history = VacancyHistory(Path(directory) / "history.sqlite3")
+                traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+                policy = ActivityPolicy(
+                    vacancies_per_cycle=1,
+                    vacancy_matching=True,
+                    matching_mode="semantic",
+                    auto_respond=True,
+                )
+                url = "https://hh.ru/vacancy/123"
+                outcome = VacancyViewOutcome(
+                    url=url,
+                    result=result(
+                        ActivityKind.VIEW_VACANCY,
+                        vacancy_title="RAG developer",
+                        match_evaluated=True,
+                        match_score=20,
+                        match_accepted=should_respond,
+                        semantic_mode="semantic",
+                        semantic_verdict=verdict,
+                    ),
+                )
+                response = result(
+                    ActivityKind.RESPOND_VACANCY,
+                    vacancy_id="123",
+                    vacancy_title="RAG developer",
+                    response_status="sent",
+                )
+                with (
+                    patch(
+                        "hh_raiser.application.page_group_service.view_search_page",
+                        return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                    ),
+                    patch(
+                        "hh_raiser.application.page_group_service.read_resume_text",
+                        return_value="Python FastAPI backend",
+                    ),
+                    patch(
+                        "hh_raiser.application.page_group_service.view_vacancies",
+                        return_value=[outcome],
+                    ),
+                    patch(
+                        "hh_raiser.application.page_group_service.respond_to_vacancy",
+                        return_value=response,
+                    ) as respond,
+                    patch(
+                        "hh_raiser.application.page_group_service.review_resume",
+                        return_value=result(ActivityKind.REVIEW_RESUME),
+                    ),
+                ):
+                    run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
+                self.assertEqual(respond.called, should_respond)
+                self.assertEqual(history.sent_response_count_today(), int(should_respond))
+
     def test_groups_every_vacancy_even_when_history_already_has_views(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")

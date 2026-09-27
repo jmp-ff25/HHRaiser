@@ -149,6 +149,14 @@ tasks:
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  activity-ollama-once:
+    desc: Один видимый цикл с оценкой Ollama без откликов и без лексических логов
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once
+        {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}}
+        --matching-mode semantic --no-auto-respond {{.CLI_ARGS}}
+
   activity-responses:
     desc: Просматривать вакансии и безопасно откликаться без обязательных форм
     cmds:
@@ -235,6 +243,43 @@ tasks:
     desc: Показать все низкоуровневые параметры приложения
     cmds:
       - uv run --locked hh-resume-raiser --help
+
+  responses-on-date:
+    desc: Проверить цель подтверждённых откликов за дату Москвы; DATE=ГГГГ-ММ-ДД TARGET=число
+    requires:
+      vars: [DATE, TARGET]
+    cmds:
+      - uv run --locked hhraiser responses --date {{.DATE}} --target {{.TARGET}}
+
+  local-matching-e2e:
+    desc: Проверить локальную модель на пограничных Python, AI, RAG и неподходящих ролях
+    env:
+      HH_LOCAL_MATCHING_E2E: "1"
+    cmds:
+      - uv run --locked --extra dev python -m unittest tests.test_local_matching_live -v
+
+  local-matching-serve:
+    desc: Запустить переносимый Ollama из state/main для локальной оценки вакансий
+    platforms: [windows]
+    env:
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_MODELS: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/ollama-models"
+    cmds:
+      - ./state/main/local-ollama/ollama.exe serve
+
+  local-matching-pull:
+    desc: Скачать Qwen3 1.7B в локальное хранилище моделей; сервер Ollama должен работать
+    platforms: [windows]
+    env:
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_MODELS: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/ollama-models"
+    cmds:
+      - ./state/main/local-ollama/ollama.exe pull qwen3:1.7b
+
+  matching-review:
+    desc: Показать вакансии, по которым прежний фильтр и локальная модель не согласились
+    cmds:
+      - uv run --locked hhraiser matching-review
 
   log-colors:
     desc: Показать палитру уровней и категорий логов без запуска браузера

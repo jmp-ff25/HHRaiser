@@ -6,6 +6,18 @@ from pathlib import Path
 
 
 class TaskfileTests(unittest.TestCase):
+    def test_ollama_view_task_disables_responses(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+        task_match = re.search(
+            r"^  activity-ollama-once:\n(?P<task>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(task_match)
+        task = task_match.group("task")
+        self.assertIn("--matching-mode semantic --no-auto-respond", task)
+        self.assertNotIn("{{.RESPONSE_ARGS}}", task)
+
     def test_launch_profiles_do_not_override_configurable_numbers(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
 

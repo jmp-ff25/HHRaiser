@@ -241,6 +241,10 @@ def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
         vacancy_view_seconds=args.vacancy_view_seconds,
         vacancy_matching=args.vacancy_matching,
         match_threshold=args.match_threshold,
+        matching_mode=args.matching_mode,
+        local_matching_model=args.local_matching_model,
+        matching_prompt=args.matching_prompt,
+        matching_excluded_titles=args.matching_excluded_titles,
         auto_respond=args.auto_respond,
         daily_response_limit=args.daily_response_limit,
         search_filters=args.search_filters,
@@ -416,6 +420,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=lambda value: bounded_non_negative_int(value, maximum=100),
         default=None,
         help="Минимальная оценка соответствия для просмотра вакансии, от 0 до 100.",
+    )
+    parser.add_argument(
+        "--matching-mode",
+        choices=("lexical", "shadow", "semantic"),
+        default=None,
+        help="lexical — прежний фильтр; shadow — локальная оценка без влияния на отклики; semantic — локальное решение.",
+    )
+    parser.add_argument(
+        "--local-matching-model",
+        default=None,
+        help="Имя установленной локальной модели Ollama (по умолчанию qwen3:1.7b).",
     )
     parser.add_argument(
         "--auto-respond",
@@ -659,6 +674,10 @@ def main(argv: list[str] | None = None) -> int:
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.vacancy_matching = settings.vacancy_matching
     args.match_threshold = settings.match_threshold
+    args.matching_mode = settings.matching_mode
+    args.local_matching_model = settings.local_matching_model
+    args.matching_prompt = settings.matching_prompt
+    args.matching_excluded_titles = settings.matching_excluded_titles
     args.auto_respond = settings.auto_respond
     args.daily_response_limit = settings.daily_response_limit
     args.captcha_answer_source = settings.captcha_answer_source

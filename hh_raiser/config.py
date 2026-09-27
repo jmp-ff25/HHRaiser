@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import os
+import textwrap
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -17,6 +18,9 @@ DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
 DEFAULT_AUTO_RESPOND = True
 DEFAULT_DAILY_RESPONSE_LIMIT = 0
+DEFAULT_MATCHING_PROMPT = (
+    Path(__file__).with_name("default_matching_prompt.txt").read_text(encoding="utf-8").strip()
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,10 @@ class FileConfig:
     search_pages_per_cycle: int | None = None
     vacancy_matching: bool | None = None
     match_threshold: int | None = None
+    matching_mode: str | None = None
+    local_matching_model: str | None = None
+    matching_prompt: str | None = None
+    matching_excluded_titles: tuple[str, ...] | None = None
     auto_respond: bool | None = None
     daily_response_limit: int | None = None
     captcha_answer_source: bool | None = None
@@ -43,6 +51,10 @@ class RuntimeSettings:
     search_pages_per_cycle: int
     vacancy_matching: bool
     match_threshold: int
+    matching_mode: str
+    local_matching_model: str
+    matching_prompt: str
+    matching_excluded_titles: tuple[str, ...] | None
     auto_respond: bool
     daily_response_limit: int
     captcha_answer_source: bool
@@ -93,6 +105,14 @@ def read_file_config(path: Path) -> FileConfig:
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
         match_threshold = parser.getint("matching", "threshold", fallback=None)
+        matching_mode = parser.get("matching", "mode", fallback=None)
+        local_matching_model = parser.get("matching", "local_model", fallback=None)
+        matching_prompt = parser.get("matching", "prompt", fallback=None)
+        matching_excluded_titles = (
+            parse_search_queries(parser.get("matching", "excluded_titles"))
+            if parser.has_option("matching", "excluded_titles")
+            else None
+        )
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
         daily_response_limit = parser.getint("responses", "daily_limit", fallback=None)
         captcha_answer_source = parser.getboolean("captchasolution", "enabled", fallback=None)
@@ -122,6 +142,10 @@ def read_file_config(path: Path) -> FileConfig:
         search_pages_per_cycle=search_pages_per_cycle,
         vacancy_matching=vacancy_matching,
         match_threshold=match_threshold,
+        matching_mode=matching_mode,
+        local_matching_model=local_matching_model,
+        matching_prompt=matching_prompt,
+        matching_excluded_titles=matching_excluded_titles,
         auto_respond=auto_respond,
         daily_response_limit=daily_response_limit,
         captcha_answer_source=captcha_answer_source,
@@ -166,6 +190,21 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         if getattr(args, "match_threshold", None) is not None
         else file_config.match_threshold
     )
+    matching_mode = getattr(args, "matching_mode", None) or file_config.matching_mode or "lexical"
+    local_matching_model = (
+        getattr(args, "local_matching_model", None)
+        or file_config.local_matching_model
+        or "qwen3:1.7b"
+    )
+    matching_prompt = textwrap.dedent(
+        file_config.matching_prompt
+        if file_config.matching_prompt is not None
+        else DEFAULT_MATCHING_PROMPT
+    ).strip()
+    if not matching_prompt or len(matching_prompt) > 12_000:
+        raise ValueError("matching.prompt должен содержать от 1 до 12000 символов")
+    if matching_mode not in {"lexical", "shadow", "semantic"}:
+        raise ValueError("matching.mode должен быть lexical, shadow или semantic")
     auto_respond = (
         getattr(args, "auto_respond", None)
         if getattr(args, "auto_respond", None) is not None
@@ -231,6 +270,10 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
             minimum=0,
             maximum=100,
         ),
+        matching_mode=matching_mode,
+        local_matching_model=local_matching_model,
+        matching_prompt=matching_prompt,
+        matching_excluded_titles=file_config.matching_excluded_titles,
         auto_respond=(auto_respond if auto_respond is not None else DEFAULT_AUTO_RESPOND),
         daily_response_limit=_validate_range(
             "responses.daily_limit",

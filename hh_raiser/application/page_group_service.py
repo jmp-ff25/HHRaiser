@@ -15,6 +15,11 @@ from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
+from hh_raiser.infrastructure.local_semantic_matcher import (
+    VERDICT_LABELS,
+    LocalSemanticMatcher,
+    excluded_role,
+)
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory, vacancy_id_from_url
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
@@ -70,10 +75,22 @@ def run_vacancy_page_group(
 
     matcher = None
     if policy.vacancy_matching:
-        matcher = VacancyCompatibilityMatcher(
-            resume_title=resume_title,
-            resume_text=resume_text,
-            threshold=policy.match_threshold,
+        matcher = (
+            VacancyCompatibilityMatcher(
+                resume_title=resume_title,
+                resume_text=resume_text,
+                threshold=policy.match_threshold,
+            )
+            if policy.matching_mode == "lexical"
+            else LocalSemanticMatcher(
+                resume_title=resume_title,
+                resume_text=resume_text,
+                threshold=policy.match_threshold,
+                mode=policy.matching_mode,
+                model=policy.local_matching_model,
+                prompt=policy.matching_prompt,
+                excluded_titles=policy.matching_excluded_titles,
+            )
         )
 
     LOGGER.info(
@@ -147,6 +164,7 @@ def run_vacancy_page_group(
                 "search_query": group.query,
                 "search_page": group.page,
                 "group_index": group.group_index,
+                "vacancy_url": outcome.url,
             },
         )
         results.append(result)
@@ -157,6 +175,9 @@ def run_vacancy_page_group(
                 accepted = result.metadata.get("match_accepted")
                 if isinstance(score, int) and isinstance(accepted, bool):
                     history.mark_evaluated(outcome.url, score=score, accepted=accepted)
+
+        if not policy.auto_respond:
+            continue
 
         if known_status is not None:
             LOGGER.info(
@@ -181,7 +202,28 @@ def run_vacancy_page_group(
                 extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
             )
             continue
+        role = excluded_role(
+            str(result.metadata.get("vacancy_title") or ""), policy.matching_excluded_titles
+        )
+        if role is not None:
+            LOGGER.info(
+                "Отклик на вакансию ID %s не выполняется: исключённая роль (%s).",
+                vacancy_id or "не распознан",
+                role,
+                extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+            )
+            continue
         if not match_accepted:
+            if result.metadata.get("semantic_mode") == "semantic":
+                LOGGER.info(
+                    "Отклик на вакансию ID %s не выполняется: локальная оценка — %s.",
+                    vacancy_id or "не распознан",
+                    VERDICT_LABELS.get(
+                        str(result.metadata.get("semantic_verdict")), "оценка недоступна"
+                    ),
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
+                continue
             match_score = result.metadata.get("match_score")
             if match_score is None:
                 LOGGER.info(
@@ -204,14 +246,6 @@ def run_vacancy_page_group(
                 ),
             )
             continue
-        if not policy.auto_respond:
-            LOGGER.info(
-                "Отклик на вакансию ID %s отключён настройкой responses.enabled.",
-                vacancy_id or "не распознан",
-                extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
-            )
-            continue
-
         daily_limit_reached = (
             policy.daily_response_limit > 0
             and history.sent_response_count_today() >= policy.daily_response_limit

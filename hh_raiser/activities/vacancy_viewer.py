@@ -18,6 +18,7 @@ from hh_raiser.infrastructure.hh.selectors import (
     VACANCY_HEADING,
     VACANCY_SKILL,
 )
+from hh_raiser.infrastructure.local_semantic_matcher import LocalSemanticMatcher
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def view_vacancies(
     vacancy_urls: list[str],
     policy: ActivityPolicy,
     *,
-    matcher: VacancyCompatibilityMatcher | None = None,
+    matcher: VacancyCompatibilityMatcher | LocalSemanticMatcher | None = None,
     captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
     view_below_threshold: bool = False,
@@ -104,21 +105,27 @@ def view_vacancies(
                     )
                 )
                 if assessment.applied:
-                    LOGGER.info(
-                        "Соответствие вакансии %s из %s «%s»: %s%% (порог %s%%).",
-                        shown_index,
-                        shown_total,
-                        vacancy_title,
-                        assessment.score,
-                        policy.match_threshold,
-                        extra=event_data(
-                            LogEvent.VACANCY_MATCH,
-                            match_score=assessment.score,
-                            match_threshold=policy.match_threshold,
-                            vacancy_title=vacancy_title,
-                            vacancy_url=canonical,
-                        ),
-                    )
+                    if assessment.semantic_mode != "semantic":
+                        LOGGER.info(
+                            "Лексическая оценка вакансии %s из %s «%s»: "
+                            "%s%% (порог %s%%, %s); допуск: %s.",
+                            shown_index,
+                            shown_total,
+                            vacancy_title,
+                            assessment.score,
+                            policy.match_threshold,
+                            "проходит" if assessment.score >= policy.match_threshold else "ниже порога",
+                            "подходит" if assessment.accepted else "отклонена",
+                            extra=event_data(
+                                LogEvent.VACANCY_MATCH,
+                                match_score=assessment.score,
+                                match_threshold=policy.match_threshold,
+                                semantic_mode=assessment.semantic_mode,
+                                semantic_verdict=assessment.semantic_verdict,
+                                vacancy_title=vacancy_title,
+                                vacancy_url=canonical,
+                            ),
+                        )
                     if not assessment.accepted and not view_below_threshold:
                         yielded = True
                         yield VacancyViewOutcome(
@@ -133,6 +140,10 @@ def view_vacancies(
                                     "match_evaluated": True,
                                     "match_score": assessment.score,
                                     "match_accepted": False,
+                                    "semantic_mode": assessment.semantic_mode,
+                                    "semantic_verdict": assessment.semantic_verdict,
+                                    "semantic_reason": assessment.semantic_reason,
+                                    "semantic_gaps": ", ".join(assessment.semantic_gaps),
                                     "title_similarity": round(
                                         assessment.title_similarity,
                                         4,
@@ -227,6 +238,10 @@ def view_vacancies(
                             if assessment is not None and assessment.applied
                             else None
                         ),
+                        "semantic_mode": assessment.semantic_mode if assessment else None,
+                        "semantic_verdict": assessment.semantic_verdict if assessment else None,
+                        "semantic_reason": assessment.semantic_reason if assessment else None,
+                        "semantic_gaps": ", ".join(assessment.semantic_gaps) if assessment else "",
                         "vacancy_title": vacancy_title,
                         "company_name": company_name,
                     },

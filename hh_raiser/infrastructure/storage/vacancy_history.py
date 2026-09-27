@@ -5,7 +5,7 @@ import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -35,6 +35,22 @@ class VacancyReservation:
     discovered_count: int
     newly_discovered_count: int
     eligible_count: int
+
+
+@dataclass(frozen=True)
+class DailyResponseSummary:
+    day: date
+    sent: int
+    already_sent: int
+    manual_required: int
+    unknown: int
+    unavailable: int
+    error: int
+
+    def meets_target(self, target: int) -> bool:
+        if target < 0:
+            raise ValueError("target must be non-negative")
+        return self.sent >= target
 
 
 def vacancy_id_from_url(url: str) -> str | None:
@@ -532,6 +548,30 @@ class VacancyHistory:
                 ),
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def response_summary_on(self, day: date) -> DailyResponseSummary:
+        """Count stored outcomes by Moscow date; only confirmed new sends count."""
+
+        counts = {status.value: 0 for status in VacancyResponseStatus}
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                "SELECT status, occurred_at FROM vacancy_responses"
+            ).fetchall()
+        for status, timestamp in rows:
+            occurred_at = datetime.fromisoformat(str(timestamp))
+            if occurred_at.tzinfo is None:
+                occurred_at = occurred_at.replace(tzinfo=MOSCOW)
+            if occurred_at.astimezone(MOSCOW).date() == day:
+                counts[str(status)] += 1
+        return DailyResponseSummary(
+            day=day,
+            sent=counts[VacancyResponseStatus.SENT.value],
+            already_sent=counts[VacancyResponseStatus.ALREADY_SENT.value],
+            manual_required=counts[VacancyResponseStatus.MANUAL_REQUIRED.value],
+            unknown=counts[VacancyResponseStatus.UNKNOWN.value],
+            unavailable=counts[VacancyResponseStatus.UNAVAILABLE.value],
+            error=counts[VacancyResponseStatus.ERROR.value],
+        )
 
     def release(self, url: str) -> None:
         vacancy_id = vacancy_id_from_url(url)

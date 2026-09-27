@@ -4,7 +4,7 @@ import random
 import sqlite3
 import unittest
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -300,3 +300,38 @@ class VacancyHistoryTests(unittest.TestCase):
                 history.record_response(record)
 
             self.assertEqual(history.sent_response_count_today(now=now), 1)
+
+    def test_response_summary_uses_moscow_date_and_only_new_sends_for_target(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            records = (
+                ("101", datetime(2026, 9, 26, 20, 59, tzinfo=UTC), VacancyResponseStatus.SENT),
+                ("102", datetime(2026, 9, 26, 21, 0, tzinfo=UTC), VacancyResponseStatus.SENT),
+                ("103", datetime(2026, 9, 27, 20, 59, tzinfo=UTC), VacancyResponseStatus.SENT),
+                ("104", datetime(2026, 9, 27, 21, 0, tzinfo=UTC), VacancyResponseStatus.SENT),
+                (
+                    "105",
+                    datetime(2026, 9, 27, 10, 0, tzinfo=UTC),
+                    VacancyResponseStatus.ALREADY_SENT,
+                ),
+                ("106", datetime(2026, 9, 27, 11, 0, tzinfo=UTC), VacancyResponseStatus.UNKNOWN),
+            )
+            for vacancy_id, occurred_at, status in records:
+                history.record_response(
+                    VacancyResponseRecord(
+                        vacancy_id=vacancy_id,
+                        occurred_at=occurred_at,
+                        status=status,
+                        detail="test",
+                        vacancy_title="Test",
+                        company_name="Example",
+                        search_query="Python",
+                        match_score=80,
+                    )
+                )
+            summary = history.response_summary_on(date(2026, 9, 27))
+            self.assertEqual(summary.sent, 2)
+            self.assertEqual(summary.already_sent, 1)
+            self.assertEqual(summary.unknown, 1)
+            self.assertTrue(summary.meets_target(2))
+            self.assertFalse(summary.meets_target(3))

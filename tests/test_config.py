@@ -6,11 +6,73 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from hh_raiser.config import read_file_config, resolve_runtime_settings
+from hh_raiser.config import DEFAULT_MATCHING_PROMPT, read_file_config, resolve_runtime_settings
 from hh_raiser.domain.search_filters import ExperienceLevel, SearchField
 
 
 class ConfigTests(unittest.TestCase):
+    def test_multiline_matching_prompt_and_title_exclusions_are_configurable(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n"
+                "[matching]\nmode = semantic\n"
+                "prompt =\n    Сравни главные задачи.\n    Ответь JSON.\n"
+                "excluded_titles =\n    преподаватель\n    продажи\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(settings.matching_prompt, "Сравни главные задачи.\nОтветь JSON.")
+        self.assertEqual(settings.matching_excluded_titles, ("преподаватель", "продажи"))
+
+    def test_missing_prompt_uses_packaged_default_and_empty_title_list_disables_vetoes(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n[matching]\nexcluded_titles =\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(settings.matching_prompt, DEFAULT_MATCHING_PROMPT)
+        self.assertEqual(settings.matching_excluded_titles, ())
+
+    def test_explicit_empty_matching_prompt_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n[matching]\nprompt =\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "matching.prompt"):
+                resolve_runtime_settings(
+                    argparse.Namespace(
+                        config_file=path,
+                        resume_title=None,
+                        search_query=None,
+                        full_activity=False,
+                    )
+                )
+
+    def test_example_configuration_remains_parseable(self) -> None:
+        example = Path(__file__).parents[1] / "hh-config.example.ini"
+        config = read_file_config(example)
+        self.assertEqual(config.matching_mode, "lexical")
+        self.assertTrue(config.matching_prompt)
+
     def test_reads_resume_and_multiple_queries_from_ini(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"

@@ -38,6 +38,9 @@ Repository = "https://github.com/jmp-ff25/HHRaiser"
 [tool.setuptools.packages.find]
 include = ["hh_raiser*"]
 
+[tool.setuptools.package-data]
+hh_raiser = ["default_matching_prompt.txt"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
