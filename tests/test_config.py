@@ -70,7 +70,7 @@ class ConfigTests(unittest.TestCase):
     def test_example_configuration_remains_parseable(self) -> None:
         example = Path(__file__).parents[1] / "hh-config.example.ini"
         config = read_file_config(example)
-        self.assertEqual(config.matching_mode, "lexical")
+        self.assertEqual(config.matching_mode, "semantic")
         self.assertTrue(config.matching_prompt)
 
     def test_reads_resume_and_multiple_queries_from_ini(self) -> None:
