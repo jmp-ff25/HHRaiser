@@ -6,11 +6,66 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from hh_raiser.config import DEFAULT_MATCHING_PROMPT, read_file_config, resolve_runtime_settings
+from hh_raiser.config import (
+    DEFAULT_HEADLESS_VIEWPORT_HEIGHT,
+    DEFAULT_HEADLESS_VIEWPORT_WIDTH,
+    DEFAULT_MATCHING_PROMPT,
+    read_file_config,
+    resolve_runtime_settings,
+)
 from hh_raiser.domain.search_filters import ExperienceLevel, SearchField
 
 
 class ConfigTests(unittest.TestCase):
+    def test_headless_viewport_defaults_to_desktop_size(self) -> None:
+        settings = resolve_runtime_settings(
+            argparse.Namespace(
+                config_file=Path("missing.ini"),
+                resume_title="Разработчик",
+                search_query=None,
+                full_activity=False,
+            )
+        )
+        self.assertEqual(settings.headless_viewport_width, DEFAULT_HEADLESS_VIEWPORT_WIDTH)
+        self.assertEqual(settings.headless_viewport_height, DEFAULT_HEADLESS_VIEWPORT_HEIGHT)
+
+    def test_headless_viewport_can_be_set_in_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Разработчик\n"
+                "[browser]\nviewport_width = 1440\nviewport_height = 900\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(
+            (settings.headless_viewport_width, settings.headless_viewport_height), (1440, 900)
+        )
+
+    def test_headless_viewport_rejects_compact_width(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Разработчик\n[browser]\nviewport_width = 800\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "browser.viewport_width"):
+                resolve_runtime_settings(
+                    argparse.Namespace(
+                        config_file=path,
+                        resume_title=None,
+                        search_query=None,
+                        full_activity=False,
+                    )
+                )
+
     def test_multiline_matching_prompt_and_title_exclusions_are_configurable(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
@@ -32,7 +87,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings.matching_prompt, "Сравни главные задачи.\nОтветь JSON.")
         self.assertEqual(settings.matching_excluded_titles, ("преподаватель", "продажи"))
 
-    def test_missing_prompt_uses_packaged_default_and_empty_title_list_disables_vetoes(self) -> None:
+    def test_missing_prompt_uses_packaged_default_and_empty_title_list_disables_vetoes(
+        self,
+    ) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
             path.write_text(

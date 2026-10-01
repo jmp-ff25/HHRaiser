@@ -229,6 +229,29 @@ def chromium_launch_args(*, debug_cdp_port: int | None) -> list[str]:
     return launch_args
 
 
+def launch_chromium_context(
+    playwright: object, profile_dir: Path, args: argparse.Namespace
+) -> object:
+    """Use a desktop viewport in headless mode and the real window in UI mode."""
+    viewport_options = (
+        {
+            "viewport": {
+                "width": args.headless_viewport_width,
+                "height": args.headless_viewport_height,
+            }
+        }
+        if args.headless
+        else {"no_viewport": True}
+    )
+    return playwright.chromium.launch_persistent_context(
+        str(profile_dir),
+        headless=args.headless,
+        **viewport_options,
+        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
+        timeout=30_000,
+    )
+
+
 def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
     """Собрать единую политику из уже проверенных CLI- и INI-настроек."""
 
@@ -480,13 +503,7 @@ def run_browser_context(
 
     should_stop = stop_requested or (lambda: False)
     LOGGER.info("Запускаю Chromium...", extra=event_data(LogEvent.BROWSER))
-    context = playwright.chromium.launch_persistent_context(
-        str(args.profile_dir),
-        headless=args.headless,
-        no_viewport=True,
-        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
-        timeout=30_000,
-    )
+    context = launch_chromium_context(playwright, args.profile_dir, args)
     if args.debug_cdp_port is not None:
         LOGGER.info(
             "Локальная диагностика CDP доступна по 127.0.0.1:%s.",
@@ -665,6 +682,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     args.resume_title = settings.resume_title
+    args.headless_viewport_width = settings.headless_viewport_width
+    args.headless_viewport_height = settings.headless_viewport_height
     args.vacancies_per_cycle = settings.vacancies_per_group
     args.activity_interval_seconds = settings.activity_interval_seconds
     args.search_queries = settings.search_queries
@@ -712,13 +731,7 @@ def main(argv: list[str] | None = None) -> int:
                 ) as temporary_dir,
                 sync_playwright() as playwright,
             ):
-                context = playwright.chromium.launch_persistent_context(
-                    temporary_dir,
-                    headless=args.headless,
-                    no_viewport=True,
-                    args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
-                    timeout=30_000,
-                )
+                context = launch_chromium_context(playwright, Path(temporary_dir), args)
                 page = context.pages[0] if context.pages else context.new_page()
                 maximize_browser_window(context, page, headless=args.headless)
                 try:

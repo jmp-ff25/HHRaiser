@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import signal
 import unittest
+from argparse import Namespace
 from contextlib import redirect_stderr
 from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from hh_raiser.cli import (
     build_parser,
     chromium_launch_args,
     graceful_interrupt,
+    launch_chromium_context,
     log_activity_results,
     next_wait_seconds,
     resume_wait_delay,
@@ -21,6 +25,36 @@ from hh_raiser.logging_config import configure_logging
 
 
 class CliTests(unittest.TestCase):
+    def test_headless_browser_uses_configured_desktop_viewport(self) -> None:
+        chromium = MagicMock()
+        args = Namespace(
+            headless=True,
+            headless_viewport_width=1920,
+            headless_viewport_height=1200,
+            debug_cdp_port=None,
+        )
+
+        launch_chromium_context(SimpleNamespace(chromium=chromium), Path("profile"), args)
+
+        options = chromium.launch_persistent_context.call_args.kwargs
+        self.assertEqual(options["viewport"], {"width": 1920, "height": 1200})
+        self.assertNotIn("no_viewport", options)
+
+    def test_visible_browser_uses_real_window_size(self) -> None:
+        chromium = MagicMock()
+        args = Namespace(
+            headless=False,
+            headless_viewport_width=1920,
+            headless_viewport_height=1200,
+            debug_cdp_port=None,
+        )
+
+        launch_chromium_context(SimpleNamespace(chromium=chromium), Path("profile"), args)
+
+        options = chromium.launch_persistent_context.call_args.kwargs
+        self.assertTrue(options["no_viewport"])
+        self.assertNotIn("viewport", options)
+
     def test_ctrl_c_requests_graceful_shutdown(self) -> None:
         with graceful_interrupt() as requested:
             signal.raise_signal(signal.SIGINT)

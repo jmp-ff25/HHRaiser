@@ -18,6 +18,8 @@ DEFAULT_VACANCY_MATCHING = True
 DEFAULT_MATCH_THRESHOLD = 55
 DEFAULT_AUTO_RESPOND = True
 DEFAULT_DAILY_RESPONSE_LIMIT = 0
+DEFAULT_HEADLESS_VIEWPORT_WIDTH = 1920
+DEFAULT_HEADLESS_VIEWPORT_HEIGHT = 1200
 DEFAULT_MATCHING_PROMPT = (
     Path(__file__).with_name("default_matching_prompt.txt").read_text(encoding="utf-8").strip()
 )
@@ -26,6 +28,8 @@ DEFAULT_MATCHING_PROMPT = (
 @dataclass(frozen=True)
 class FileConfig:
     resume_title: str | None = None
+    headless_viewport_width: int | None = None
+    headless_viewport_height: int | None = None
     search_queries: tuple[str, ...] = ()
     vacancies_per_group: int | None = None
     activity_interval_seconds: int | None = None
@@ -45,6 +49,8 @@ class FileConfig:
 @dataclass(frozen=True)
 class RuntimeSettings:
     resume_title: str
+    headless_viewport_width: int
+    headless_viewport_height: int
     search_queries: tuple[str, ...]
     vacancies_per_group: int
     activity_interval_seconds: int
@@ -97,6 +103,8 @@ def read_file_config(path: Path) -> FileConfig:
 
     try:
         resume_title = parser.get("resume", "title", fallback="").strip() or None
+        headless_viewport_width = parser.getint("browser", "viewport_width", fallback=None)
+        headless_viewport_height = parser.getint("browser", "viewport_height", fallback=None)
         search_queries = parse_search_queries(parser.get("activity", "search_queries", fallback=""))
         vacancies_per_group = parser.getint("activity", "vacancies_per_group", fallback=None)
         activity_interval_seconds = parser.getint(
@@ -136,6 +144,8 @@ def read_file_config(path: Path) -> FileConfig:
         raise ValueError(f"Некорректное значение в INI-файле настроек {path}: {error}") from error
     return FileConfig(
         resume_title=resume_title,
+        headless_viewport_width=headless_viewport_width,
+        headless_viewport_height=headless_viewport_height,
         search_queries=search_queries,
         vacancies_per_group=vacancies_per_group,
         activity_interval_seconds=activity_interval_seconds,
@@ -238,6 +248,26 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
     )
     return RuntimeSettings(
         resume_title=resume_title,
+        headless_viewport_width=_validate_range(
+            "browser.viewport_width",
+            (
+                file_config.headless_viewport_width
+                if file_config.headless_viewport_width is not None
+                else DEFAULT_HEADLESS_VIEWPORT_WIDTH
+            ),
+            minimum=1280,
+            maximum=7680,
+        ),
+        headless_viewport_height=_validate_range(
+            "browser.viewport_height",
+            (
+                file_config.headless_viewport_height
+                if file_config.headless_viewport_height is not None
+                else DEFAULT_HEADLESS_VIEWPORT_HEIGHT
+            ),
+            minimum=720,
+            maximum=4320,
+        ),
         search_queries=search_queries,
         vacancies_per_group=_validate_range(
             "activity.vacancies_per_group",
