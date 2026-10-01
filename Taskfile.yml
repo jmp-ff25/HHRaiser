@@ -245,7 +245,7 @@ tasks:
       - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
 
   full-activity-reset-history:
-    desc: Начать новое поколение истории и запустить полный фоновый режим
+    desc: Начать новый цикл просмотра вакансий без удаления БД и запустить фоновый режим
     cmds:
       - >-
         uv run --locked hh-resume-raiser --headless --reset-vacancy-history

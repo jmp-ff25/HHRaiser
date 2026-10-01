@@ -403,12 +403,12 @@ def _finish_search_cycle(
     traversal: VacancyTraversal,
     history: VacancyHistory,
 ) -> None:
-    """Закончить полный обход и начать следующий с новым поколением истории."""
+    """Закончить полный обход и разрешить повторный просмотр в следующем цикле."""
 
     generation = history.advance_generation()
     LOGGER.info(
         "Все поисковые запросы и их страницы пройдены; начинается обход № %s "
-        "с новым поколением истории № %s.",
+        "(цикл просмотра вакансий № %s).",
         traversal.cycle,
         generation,
         extra=event_data(
