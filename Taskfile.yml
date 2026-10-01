@@ -15,7 +15,6 @@ vars:
 # с каталогом проекта.
 env:
   UV_CACHE_DIR: "{{.TASKFILE_DIR}}/.uv-cache"
-  PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/playwright-browsers"
 
 tasks:
   default:
@@ -25,19 +24,16 @@ tasks:
     silent: true
 
   install:
-    desc: Установить зависимости, Chromium, Ollama с моделью и проверить конфигурацию
     cmds:
-      - uv sync --locked
-      - uv run --locked playwright install chromium
-      - task: prepare-config
-      - task: prepare-env
-      - uv run --locked hhraiser setup
-      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
+      - task: setup
 
   setup:
-    desc: Псевдоним install для первичной установки
+    desc: Установить uv, Python, Chromium и Ollama; создать шаблоны настроек
     cmds:
-      - task: install
+      - cmd: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+        platforms: [windows]
+      - cmd: ./scripts/setup.sh
+        platforms: [linux, darwin]
 
   install-dev:
     desc: Установить инструменты разработки, Chromium и модель Ollama
@@ -203,20 +199,12 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-responses:
-    desc: Совместимое название full-activity для фонового режима с откликами
     cmds:
-      - >-
-        uv run --locked hh-resume-raiser --headless
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
-        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+      - task: full-activity
 
   full-activity-responses-ui:
-    desc: Совместимое название full-activity-ui для видимого режима с откликами
     cmds:
-      - >-
-        uv run --locked hh-resume-raiser
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
-        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+      - task: full-activity-ui
 
   full-activity-once:
     desc: Выполнить один полный цикл в видимом Chromium
@@ -278,22 +266,16 @@ tasks:
       - uv run --locked --extra dev python -m unittest tests.test_local_matching_live -v
 
   local-matching-serve:
-    desc: Запустить переносимый Ollama из state/main для локальной оценки вакансий
-    platforms: [windows]
+    desc: Запустить установленный Ollama для локальной оценки вакансий
     env:
       OLLAMA_HOST: 127.0.0.1:11434
-      OLLAMA_MODELS: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/ollama-models"
     cmds:
-      - ./state/main/local-ollama/ollama.exe serve
+      - ollama serve
 
   local-matching-pull:
-    desc: Скачать Qwen3 1.7B в локальное хранилище моделей; сервер Ollama должен работать
-    platforms: [windows]
-    env:
-      OLLAMA_HOST: 127.0.0.1:11434
-      OLLAMA_MODELS: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/ollama-models"
+    desc: Скачать модель из matching.local_model в общее хранилище Ollama
     cmds:
-      - ./state/main/local-ollama/ollama.exe pull qwen3:1.7b
+      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
 
   matching-review:
     desc: Показать вакансии, по которым прежний фильтр и локальная модель не согласились

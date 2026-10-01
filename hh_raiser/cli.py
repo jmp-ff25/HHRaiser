@@ -650,10 +650,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.wasSuccessful() else 1
 
     args.profile_dir = args.profile_dir.resolve()
-    browser_dir = args.profile_dir.parent / "playwright-browsers"
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_dir)
     if args.install_browser:
-        args.profile_dir.parent.mkdir(parents=True, exist_ok=True)
         return subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=False
         ).returncode

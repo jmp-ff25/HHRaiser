@@ -14,11 +14,12 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 
+from hh_raiser.windows_signature import verify_windows_signature
+
 MODEL_DEFAULT = "qwen3:1.7b"
 API_TAGS_URL = "http://127.0.0.1:11434/api/tags"
-INSTALL_URL = (
-    "https://ollama.com/install.ps1" if sys.platform == "win32" else "https://ollama.com/install.sh"
-)
+WINDOWS_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
+UNIX_INSTALL_URL = "https://ollama.com/install.sh"
 
 
 def configured_model(config_file: Path) -> str:
@@ -32,10 +33,7 @@ def configured_model(config_file: Path) -> str:
     return model
 
 
-def find_ollama(project_dir: Path) -> Path | None:
-    portable = project_dir / "state" / "main" / "local-ollama" / "ollama.exe"
-    if sys.platform == "win32" and portable.is_file():
-        return portable
+def find_ollama() -> Path | None:
     executable = shutil.which("ollama")
     if executable:
         return Path(executable)
@@ -49,17 +47,19 @@ def find_ollama(project_dir: Path) -> Path | None:
 
 
 def install_ollama() -> None:
-    """Run Ollama's official platform installer only when its CLI is missing."""
+    """Install Ollama for the current user/system, not inside the project."""
     print("Ollama не найдена; устанавливаю из официального источника.", flush=True)
     with tempfile.TemporaryDirectory(prefix="hhraiser-ollama-") as directory:
-        script = Path(directory) / ("install.ps1" if sys.platform == "win32" else "install.sh")
-        with urlopen(INSTALL_URL, timeout=30) as response, script.open("wb") as output:
+        windows = sys.platform == "win32"
+        installer = Path(directory) / ("OllamaSetup.exe" if windows else "install.sh")
+        url = WINDOWS_INSTALLER_URL if windows else UNIX_INSTALL_URL
+        with urlopen(url, timeout=60) as response, installer.open("wb") as output:
             shutil.copyfileobj(response, output)
-        command = (
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)]
-            if sys.platform == "win32"
-            else ["sh", str(script)]
-        )
+        if windows:
+            verify_windows_signature(installer)
+            command = [str(installer), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"]
+        else:
+            command = ["sh", str(installer)]
         subprocess.run(command, check=True)
 
 
@@ -95,10 +95,6 @@ def start_ollama(executable: Path, project_dir: Path) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     environment["OLLAMA_HOST"] = "127.0.0.1:11434"
-    if executable == state_dir / "local-ollama" / "ollama.exe":
-        models = state_dir / "ollama-models"
-        models.mkdir(parents=True, exist_ok=True)
-        environment["OLLAMA_MODELS"] = str(models)
     log_path = state_dir / "ollama-server.log"
     with log_path.open("ab") as log:
         options: dict[str, object] = {
@@ -156,10 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     project_dir = args.project_dir.resolve()
     config_file = args.config_file or project_dir / "state" / "main" / "hh-config.ini"
     model = configured_model(config_file)
-    executable = find_ollama(project_dir)
+    executable = find_ollama()
     if executable is None:
         install_ollama()
-        executable = find_ollama(project_dir)
+        executable = find_ollama()
     if executable is None:
         raise RuntimeError("Установщик завершился, но команда ollama не найдена")
     start_ollama(executable, project_dir)

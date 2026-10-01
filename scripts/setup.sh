@@ -8,9 +8,15 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
 cd "$PROJECT_DIR"
+mkdir -p "$PROJECT_DIR/state/main"
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+  cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
+fi
+if [ ! -f "$PROJECT_DIR/state/main/hh-config.ini" ]; then
+  cp "$PROJECT_DIR/hh-config.example.ini" "$PROJECT_DIR/state/main/hh-config.ini"
+fi
 export UV_CACHE_DIR="$PROJECT_DIR/.uv-cache"
 uv sync --locked --extra dev
-PLAYWRIGHT_BROWSERS_PATH="$PROJECT_DIR/state/main/playwright-browsers" \
-  uv run --locked playwright install chromium
-uv run --locked hhraiser setup
+uv run --locked playwright install chromium
 uv run --locked python -m hh_raiser.setup_ollama
+printf 'Установка готова. Заполните .env и state/main/hh-config.ini, затем запустите task full-activity.\n'

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import subprocess
 import unittest
 from pathlib import Path
@@ -62,6 +63,22 @@ class SetupOllamaTests(unittest.TestCase):
             ]
             with self.assertRaises(subprocess.CalledProcessError):
                 setup_ollama.ensure_model(Path("ollama"), "qwen3:1.7b")
+
+    def test_windows_install_uses_signed_official_exe_without_powershell(self) -> None:
+        with (
+            patch.object(setup_ollama.sys, "platform", "win32"),
+            patch.object(
+                setup_ollama, "urlopen", return_value=io.BytesIO(b"signed installer")
+            ) as get,
+            patch.object(setup_ollama, "verify_windows_signature") as verify,
+            patch.object(setup_ollama.subprocess, "run") as run,
+        ):
+            setup_ollama.install_ollama()
+        get.assert_called_once_with(setup_ollama.WINDOWS_INSTALLER_URL, timeout=60)
+        verify.assert_called_once()
+        command = run.call_args.args[0]
+        self.assertEqual(Path(command[0]).name, "OllamaSetup.exe")
+        self.assertEqual(command[1:], ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"])
 
 
 if __name__ == "__main__":
