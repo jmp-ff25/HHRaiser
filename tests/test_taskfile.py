@@ -6,6 +6,24 @@ from pathlib import Path
 
 
 class TaskfileTests(unittest.TestCase):
+    def test_help_lists_tasks_and_cli_help_remains_available(self) -> None:
+        taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
+        help_task = re.search(
+            r"^  help:\n(?P<body>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        cli_help_task = re.search(
+            r"^  help-cli:\n(?P<body>.*?)(?=^  \S|\Z)",
+            taskfile,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(help_task)
+        self.assertIsNotNone(cli_help_task)
+        self.assertIn("task --list", help_task.group("body"))
+        self.assertIn("silent: true", help_task.group("body"))
+        self.assertIn("hh-resume-raiser --help", cli_help_task.group("body"))
+
     def test_every_setup_entrypoint_prepares_ollama_model(self) -> None:
         root = Path(__file__).parents[1]
         taskfile = (root / "Taskfile.yml").read_text(encoding="utf-8")

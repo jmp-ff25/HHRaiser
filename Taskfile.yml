@@ -22,6 +22,7 @@ tasks:
     desc: Показать доступные команды
     cmds:
       - task --list
+    silent: true
 
   install:
     desc: Установить зависимости, Chromium, Ollama с моделью и проверить конфигурацию
@@ -39,7 +40,7 @@ tasks:
       - task: install
 
   install-dev:
-    desc: Установить приложение с инструментами разработки и Chromium
+    desc: Установить инструменты разработки, Chromium и модель Ollama
     cmds:
       - uv sync --locked --extra dev
       - uv run --locked playwright install chromium
@@ -202,7 +203,7 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-responses:
-    desc: Запустить все возможности и безопасные отклики в фоновом режиме
+    desc: Совместимое название full-activity для фонового режима с откликами
     cmds:
       - >-
         uv run --locked hh-resume-raiser --headless
@@ -210,7 +211,7 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-responses-ui:
-    desc: Запустить все возможности и безопасные отклики в видимом Chromium
+    desc: Совместимое название full-activity-ui для видимого режима с откликами
     cmds:
       - >-
         uv run --locked hh-resume-raiser
@@ -252,7 +253,13 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   help:
-    desc: Показать все низкоуровневые параметры приложения
+    desc: Показать список команд проекта с краткими пояснениями
+    cmds:
+      - task --list
+    silent: true
+
+  help-cli:
+    desc: Показать все низкоуровневые параметры hh-resume-raiser
     cmds:
       - uv run --locked hh-resume-raiser --help
 
