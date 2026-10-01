@@ -7,7 +7,13 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 Set-Location $projectDir
+$env:UV_CACHE_DIR = "$projectDir\.uv-cache"
 uv sync --locked --extra dev
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $env:PLAYWRIGHT_BROWSERS_PATH = "$projectDir\state\main\playwright-browsers"
-uv run playwright install chromium
-uv run hhraiser setup
+uv run --locked playwright install chromium
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+uv run --locked hhraiser setup
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+uv run --locked python -m hh_raiser.setup_ollama
+exit $LASTEXITCODE

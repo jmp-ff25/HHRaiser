@@ -29,11 +29,13 @@ if ! command -v task >/dev/null 2>&1; then
 fi
 
 cd "$PROJECT_DIR"
+export UV_CACHE_DIR="$PROJECT_DIR/.uv-cache"
 uv sync --locked --extra dev
 uv run playwright install-deps chromium
 PLAYWRIGHT_BROWSERS_PATH="$PROJECT_DIR/state/main/playwright-browsers" \
-  uv run playwright install chromium
-uv run hhraiser setup
+  uv run --locked playwright install chromium
+uv run --locked hhraiser setup
+uv run --locked python -m hh_raiser.setup_ollama
 
 escaped_project_dir=$(printf '%s' "$PROJECT_DIR" | sed 's/[&|]/\\&/g')
 sed "s|@PROJECT_DIR@|$escaped_project_dir|g" deploy/systemd/hhraiser@.service \

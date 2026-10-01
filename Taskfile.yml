@@ -24,13 +24,14 @@ tasks:
       - task --list
 
   install:
-    desc: Установить зависимости, Chromium и проверить подготовленную конфигурацию
+    desc: Установить зависимости, Chromium, Ollama с моделью и проверить конфигурацию
     cmds:
       - uv sync --locked
       - uv run --locked playwright install chromium
       - task: prepare-config
       - task: prepare-env
       - uv run --locked hhraiser setup
+      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
 
   setup:
     desc: Псевдоним install для первичной установки
@@ -44,6 +45,7 @@ tasks:
       - uv run --locked playwright install chromium
       - task: prepare-config
       - task: prepare-env
+      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
 
   install-browser:
     desc: Установить Chromium для Playwright
@@ -84,6 +86,16 @@ tasks:
         source = Path('.env.example');
         target = Path(os.environ['HH_TASK_ENV_FILE']);
         target.write_bytes(source.read_bytes())"
+
+  reset-data-preview:
+    desc: Показать данные, которые удалит reset-data
+    cmds:
+      - uv run --locked python -m hh_raiser.reset_data --dry-run
+
+  reset-data:
+    desc: Удалить журналы, базы, профиль браузера и другое состояние; сохранить конфиги и .env
+    cmds:
+      - uv run --locked python -m hh_raiser.reset_data
 
   init-session:
     desc: Открыть Chromium для первичной авторизации и сохранить сессию
