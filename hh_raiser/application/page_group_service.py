@@ -174,7 +174,17 @@ def run_vacancy_page_group(
                 score = result.metadata.get("match_score")
                 accepted = result.metadata.get("match_accepted")
                 if isinstance(score, int) and isinstance(accepted, bool):
-                    history.mark_evaluated(outcome.url, score=score, accepted=accepted)
+                    history.mark_evaluated(
+                        outcome.url,
+                        score=score,
+                        accepted=accepted,
+                        mode=str(result.metadata.get("semantic_mode") or "lexical"),
+                        semantic_verdict=(
+                            str(result.metadata["semantic_verdict"])
+                            if result.metadata.get("semantic_verdict") is not None
+                            else None
+                        ),
+                    )
 
         if not policy.auto_respond:
             continue

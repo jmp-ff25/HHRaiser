@@ -99,6 +99,8 @@ class VacancyHistory:
                     last_evaluated_generation INTEGER,
                     last_match_score INTEGER,
                     last_match_accepted INTEGER,
+                    last_matching_mode TEXT,
+                    last_semantic_verdict TEXT,
                     reserved_generation INTEGER,
                     reserved_until TEXT
                 );
@@ -157,6 +159,8 @@ class VacancyHistory:
                 "last_evaluated_generation": "INTEGER",
                 "last_match_score": "INTEGER",
                 "last_match_accepted": "INTEGER",
+                "last_matching_mode": "TEXT",
+                "last_semantic_verdict": "TEXT",
             }
             for column, definition in migrations.items():
                 if column not in columns:
@@ -408,7 +412,15 @@ class VacancyHistory:
                 (datetime.now(MOSCOW).isoformat(), generation, vacancy_id),
             )
 
-    def mark_evaluated(self, url: str, *, score: int, accepted: bool) -> None:
+    def mark_evaluated(
+        self,
+        url: str,
+        *,
+        score: int,
+        accepted: bool,
+        mode: str = "lexical",
+        semantic_verdict: str | None = None,
+    ) -> None:
         vacancy_id = vacancy_id_from_url(url)
         if vacancy_id is None:
             return
@@ -420,6 +432,7 @@ class VacancyHistory:
                 UPDATE vacancies
                 SET last_evaluated_at = ?, last_evaluated_generation = ?,
                     last_match_score = ?, last_match_accepted = ?,
+                    last_matching_mode = ?, last_semantic_verdict = ?,
                     reserved_generation = NULL, reserved_until = NULL
                 WHERE vacancy_id = ?
                 """,
@@ -428,6 +441,8 @@ class VacancyHistory:
                     generation,
                     score,
                     int(accepted),
+                    mode,
+                    semantic_verdict,
                     vacancy_id,
                 ),
             )

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-from collections import Counter
 from contextlib import closing
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
+from hh_raiser.bot.statistics import sent_counts_by_moscow_day
 from hh_raiser.models import MOSCOW
 
 _BACKGROUND = "#0b1220"
@@ -70,16 +70,23 @@ def render_statistics_dashboard(state_dir: Path, *, instance_name: str) -> bytes
                     "SELECT last_match_score FROM vacancies WHERE last_match_score IS NOT NULL"
                 ).fetchall()
             ]
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(vacancies)")
+            }
+            semantic_rows = (
+                connection.execute(
+                    """SELECT last_semantic_verdict, COUNT(*) FROM vacancies
+                    WHERE last_matching_mode = 'semantic' AND last_semantic_verdict IS NOT NULL
+                    GROUP BY last_semantic_verdict"""
+                ).fetchall()
+                if {"last_matching_mode", "last_semantic_verdict"} <= columns
+                else []
+            )
             response_rows = connection.execute(
                 "SELECT status, COUNT(*) FROM vacancy_responses GROUP BY status"
             ).fetchall()
             daily_rows = connection.execute(
-                """
-                SELECT SUBSTR(occurred_at, 1, 10), COUNT(*)
-                FROM vacancy_responses
-                GROUP BY SUBSTR(occurred_at, 1, 10)
-                ORDER BY SUBSTR(occurred_at, 1, 10)
-                """
+                "SELECT status, occurred_at FROM vacancy_responses"
             ).fetchall()
     except sqlite3.Error as error:
         raise ChartReadError("Не удалось прочитать историю для построения графиков.") from error
@@ -97,7 +104,10 @@ def render_statistics_dashboard(state_dir: Path, *, instance_name: str) -> bytes
         _style_axis(axis)
 
     _draw_queries(axes[0, 0], query_rows)
-    _draw_match_scores(axes[0, 1], match_scores)
+    if semantic_rows:
+        _draw_semantic_decisions(axes[0, 1], semantic_rows)
+    else:
+        _draw_match_scores(axes[0, 1], match_scores)
     _draw_responses(axes[1, 0], response_rows)
     _draw_daily_activity(axes[1, 1], daily_rows)
 
@@ -130,7 +140,7 @@ def _draw_queries(axis, rows: list[tuple[object, ...]]) -> None:
 
 
 def _draw_match_scores(axis, scores: list[int]) -> None:
-    axis.set_title("Распределение оценки соответствия", color=_TEXT, fontweight="bold")
+    axis.set_title("Лексическая оценка (справочно)", color=_TEXT, fontweight="bold")
     if not scores:
         _draw_empty(axis, "Оценок соответствия пока нет")
         return
@@ -143,6 +153,18 @@ def _draw_match_scores(axis, scores: list[int]) -> None:
     legend = axis.legend(facecolor=_PANEL, edgecolor=_GRID)
     for text in legend.get_texts():
         text.set_color(_TEXT)
+
+
+def _draw_semantic_decisions(axis, rows: list[tuple[object, ...]]) -> None:
+    axis.set_title("Итоговый отбор (semantic)", color=_TEXT, fontweight="bold")
+    counts = {str(verdict): int(count) for verdict, count in rows}
+    labels = ["Подходит", "Проверить", "Не подходит", "Недоступна"]
+    keys = ["fit", "unsure", "unfit", "unavailable"]
+    values = [counts.get(key, 0) for key in keys]
+    bars = axis.bar(labels, values, color=[_SUCCESS, _WARNING, _DANGER, _MUTED])
+    axis.bar_label(bars, color=_TEXT, padding=3, fontsize=9)
+    axis.tick_params(axis="x", rotation=15)
+    axis.set_ylabel("Вакансий по последнему решению", color=_MUTED)
 
 
 def _draw_responses(axis, rows: list[tuple[object, ...]]) -> None:
@@ -161,10 +183,10 @@ def _draw_responses(axis, rows: list[tuple[object, ...]]) -> None:
 
 
 def _draw_daily_activity(axis, rows: list[tuple[object, ...]]) -> None:
-    axis.set_title("Отклики за последние 14 дней", color=_TEXT, fontweight="bold")
+    axis.set_title("Новые подтверждённые отклики за 14 дней", color=_TEXT, fontweight="bold")
     today = datetime.now(MOSCOW).date()
     dates = [today - timedelta(days=offset) for offset in range(13, -1, -1)]
-    counts = Counter({str(day): int(count) for day, count in rows})
+    counts = sent_counts_by_moscow_day(rows)
     values = [counts[date.isoformat()] for date in dates]
     labels = [date.strftime("%d.%m") for date in dates]
     axis.plot(labels, values, color=_SUCCESS, marker="o", linewidth=2.2)

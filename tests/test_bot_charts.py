@@ -21,7 +21,9 @@ class BotChartTests(unittest.TestCase):
                 limit=1,
                 revisit_after_days=0,
             )
-            history.mark_evaluated(url, score=78, accepted=True)
+            history.mark_evaluated(
+                url, score=78, accepted=True, mode="semantic", semantic_verdict="fit"
+            )
             history.mark_viewed(url)
             history.record_response(
                 VacancyResponseRecord.now(

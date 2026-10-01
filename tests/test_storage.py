@@ -151,6 +151,8 @@ class VacancyHistoryTests(unittest.TestCase):
                 ).fetchone()
             self.assertIn("last_match_score", columns)
             self.assertIn("last_match_accepted", columns)
+            self.assertIn("last_matching_mode", columns)
+            self.assertIn("last_semantic_verdict", columns)
             self.assertIn("post_response_modal_text", response_columns)
             self.assertEqual(row, ("123",))
             self.assertEqual(history.response_records()[0].detail, "Подтверждено.")

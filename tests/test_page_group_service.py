@@ -118,7 +118,7 @@ class PageGroupServiceTests(unittest.TestCase):
     def test_semantic_verdict_controls_response_even_when_lexical_score_is_low(self) -> None:
         for verdict, should_respond in (("fit", True), ("unsure", False)):
             with self.subTest(verdict=verdict), TemporaryDirectory() as directory:
-                history = VacancyHistory(Path(directory) / "history.sqlite3")
+                history = VacancyHistory(Path(directory) / "vacancy-history.sqlite3")
                 traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
                 policy = ActivityPolicy(
                     vacancies_per_cycle=1,
@@ -170,6 +170,8 @@ class PageGroupServiceTests(unittest.TestCase):
                     run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
                 self.assertEqual(respond.called, should_respond)
                 self.assertEqual(history.sent_response_count_today(), int(should_respond))
+                statistics = read_instance_statistics(Path(directory))
+                self.assertEqual(statistics.semantic_verdicts, {verdict: 1})
 
     def test_groups_every_vacancy_even_when_history_already_has_views(self) -> None:
         with TemporaryDirectory() as directory:
