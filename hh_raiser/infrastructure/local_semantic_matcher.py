@@ -17,7 +17,7 @@ from hh_raiser.domain.matching import (
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 LOCAL_OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
-
+LOCAL_OLLAMA_TIMEOUT_SECONDS = 240
 
 
 _EXCLUDED_ROLE_PATTERNS = (
@@ -25,7 +25,9 @@ _EXCLUDED_ROLE_PATTERNS = (
     (re.compile(r"\bdwh\b|разработчик\s+хранилищ[а-я\s]*данных", re.IGNORECASE), "DWH"),
     (re.compile(r"\betl\b|\bdata engineer\b", re.IGNORECASE), "ETL/Data Engineering"),
     (
-        re.compile(r"(?:стаж[её]р|intern).{0,24}\bml\b|\bml\b.{0,24}(?:стаж[её]р|intern)", re.IGNORECASE),
+        re.compile(
+            r"(?:стаж[её]р|intern).{0,24}\bml\b|\bml\b.{0,24}(?:стаж[её]р|intern)", re.IGNORECASE
+        ),
         "стажировка ML",
     ),
     (
@@ -131,15 +133,12 @@ _TASK_WORDS = re.compile(
 
 def vacancy_task_excerpt(description: str) -> str | None:
     """Take a short, verifiable task excerpt directly from the vacancy text."""
+
     def shorten(value: str) -> str:
         if len(value) > 160:
             fragment = value[:160]
             clause_end = max(fragment.rfind("("), fragment.rfind("; "), fragment.rfind(". "))
-            value = (
-                fragment[:clause_end]
-                if clause_end >= 70
-                else fragment.rsplit(" ", 1)[0] + "…"
-            )
+            value = fragment[:clause_end] if clause_end >= 70 else fragment.rsplit(" ", 1)[0] + "…"
         return value.rstrip(" ,;:")
 
     lines = [" ".join(line.split()).strip(" •-–—") for line in description.splitlines()]
@@ -213,15 +212,12 @@ def query_local_model(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urlopen(request, timeout=90) as response:
+    with urlopen(request, timeout=LOCAL_OLLAMA_TIMEOUT_SECONDS) as response:
         content = json.load(response)["message"]["content"]
     answer = json.loads(content)
     if not isinstance(answer, dict) or answer.get("verdict") not in {"fit", "unsure", "unfit"}:
         raise ValueError("Недопустимое решение локальной модели")
-    if (
-        not isinstance(answer.get("reason"), str)
-        or not isinstance(answer.get("gaps"), list)
-    ):
+    if not isinstance(answer.get("reason"), str) or not isinstance(answer.get("gaps"), list):
         raise TypeError("Неполный ответ локальной модели")
     excerpt = vacancy_task_excerpt(vacancy.description)
     return SemanticDecision(
@@ -265,6 +261,12 @@ class LocalSemanticMatcher:
         if not lexical.applied:
             return lexical
         role = excluded_role(vacancy.title, self.excluded_titles)
+        LOGGER.info(
+            "Оцениваю вакансию «%s» через Ollama (ожидание до %s сек.).",
+            vacancy.title,
+            LOCAL_OLLAMA_TIMEOUT_SECONDS,
+            extra=event_data(LogEvent.VACANCY_MATCH, vacancy_title=vacancy.title),
+        )
         try:
             decision = query_local_model(
                 resume_title=self.resume_title,
@@ -310,9 +312,7 @@ class LocalSemanticMatcher:
             )
         final_verdict = "unfit" if role is not None else decision.verdict
         reason = (
-            f"основная роль: {role}; {decision.reason}"
-            if role is not None
-            else decision.reason
+            f"основная роль: {role}; {decision.reason}" if role is not None else decision.reason
         )
         if role is not None:
             LOGGER.info(

@@ -23,9 +23,7 @@ class LocalSemanticMatcherTests(unittest.TestCase):
         self.assertEqual(excluded_role("Backend-разработчик Java"), "Java backend")
         self.assertEqual(excluded_role("Стажер ML-разработчик (fast track)"), "стажировка ML")
         self.assertEqual(excluded_role("Разработчик DWH"), "DWH")
-        self.assertEqual(
-            excluded_role("Разработчик ETL / Data Engineer"), "ETL/Data Engineering"
-        )
+        self.assertEqual(excluded_role("Разработчик ETL / Data Engineer"), "ETL/Data Engineering")
         self.assertEqual(
             excluded_role("Инженер-разработчик системы компьютерного зрения (OpenCV)"),
             "компьютерное зрение",
@@ -68,9 +66,7 @@ class LocalSemanticMatcherTests(unittest.TestCase):
         )
         self.assertIsNone(vacancy_task_excerpt("ДМС, офис и корпоративные бонусы"))
         self.assertEqual(
-            vacancy_task_excerpt(
-                "Задачи:\nРазрабатывать Python API\nТребования:\nЗнание SQL"
-            ),
+            vacancy_task_excerpt("Задачи:\nРазрабатывать Python API\nТребования:\nЗнание SQL"),
             "Разрабатывать Python API",
         )
 
@@ -103,6 +99,7 @@ class LocalSemanticMatcherTests(unittest.TestCase):
             assessment = self.matcher("semantic").evaluate(self.vacancy)
         self.assertTrue(assessment.accepted)
         message = "\n".join(captured.output)
+        self.assertIn("Оцениваю вакансию", message)
         self.assertIn("подходит — основная задача", message)
         self.assertNotIn(": fit", message)
         self.assertNotIn("Пробелы: нет", message)
@@ -184,6 +181,7 @@ class LocalSemanticMatcherTests(unittest.TestCase):
         request = send.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(request.full_url, "http://127.0.0.1:11434/api/chat")
+        self.assertEqual(send.call_args.kwargs["timeout"], 240)
         self.assertEqual(payload["messages"][0]["content"], "Пользовательская инструкция из INI")
         self.assertEqual(
             payload["format"]["properties"]["verdict"]["enum"], ["fit", "unsure", "unfit"]
