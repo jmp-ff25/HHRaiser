@@ -85,9 +85,9 @@ class PolzaVacancyMatcher:
             )
             if not inserted:
                 return self._assessment(decision, cached=True)
-        reason = " ".join(decision.reason.split())[:350]
+        reason = concise_log_reason(decision.reason)
         LOGGER.info(
-            "Polza «%s»: %s — %s.",
+            "Polza «%s»: %s — %s",
             vacancy.title,
             VERDICT_LABELS[decision.verdict],
             reason,
@@ -110,3 +110,15 @@ class PolzaVacancyMatcher:
             semantic_gaps=decision.gaps,
             cached=cached,
         )
+
+
+def concise_log_reason(reason: str, *, limit: int = 280) -> str:
+    """Keep log explanations readable while retaining the full answer in SQLite."""
+    normalized = " ".join(reason.split())
+    if len(normalized) > limit:
+        prefix = normalized[:limit]
+        first_words = (
+            prefix if normalized[limit].isspace() else prefix.rsplit(" ", 1)[0] or prefix
+        )
+        return first_words.rstrip(".,;:") + "…"
+    return normalized if normalized.endswith((".", "!", "?", "…")) else normalized + "."

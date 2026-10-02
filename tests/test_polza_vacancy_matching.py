@@ -11,6 +11,7 @@ from openai import APIConnectionError
 
 from hh_raiser.application.polza_vacancy_matcher import (
     PolzaVacancyMatcher,
+    concise_log_reason,
     resume_fingerprint,
 )
 from hh_raiser.domain.matching import InvalidModelResponse, ModelDecision, VacancyDocument
@@ -64,6 +65,11 @@ class PolzaVacancyClientTests(unittest.TestCase):
 
 
 class PolzaVacancyMatcherTests(unittest.TestCase):
+    def test_log_reason_has_one_ending_and_never_cuts_a_word(self) -> None:
+        self.assertEqual(concise_log_reason("Совпадают задачи."), "Совпадают задачи.")
+        self.assertEqual(concise_log_reason("Совпадают задачи"), "Совпадают задачи.")
+        self.assertEqual(concise_log_reason("Очень длинное объяснение", limit=13), "Очень длинное…")
+
     def test_paid_answer_is_persisted_before_second_visit(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "vacancy-history.sqlite3"
