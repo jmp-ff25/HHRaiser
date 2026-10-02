@@ -62,6 +62,22 @@ _EXCLUDED_ROLE_PATTERNS = (
     ),
 )
 
+# These are specialist roles where a general software skill (including Python)
+# is not evidence of the primary work. Keep the guard resume-dependent so a
+# matching specialist resume can still be assessed by the model.
+_SPECIALIST_ROLES = (
+    (
+        re.compile(
+            r"\b(?:sdr|rf|dsp)\b|радиочастот|радиоканал|обработк\w*\s+сигнал", re.IGNORECASE
+        ),
+        "радиосвязь и обработка сигналов",
+    ),
+    (
+        re.compile(r"(?<!\w)c\+\+(?!\w)", re.IGNORECASE),
+        "разработка на C++",
+    ),
+)
+
 
 def excluded_role(title: str, excluded_titles: tuple[str, ...] | None = None) -> str | None:
     """Honor explicit career preferences before asking a probabilistic model."""
@@ -70,6 +86,14 @@ def excluded_role(title: str, excluded_titles: tuple[str, ...] | None = None) ->
     for pattern, reason in _EXCLUDED_ROLE_PATTERNS:
         if pattern.search(title):
             return reason
+    return None
+
+
+def unsupported_specialist_role(title: str, resume_text: str) -> str | None:
+    """Require direct resume evidence before automating a specialist response."""
+    for pattern, role in _SPECIALIST_ROLES:
+        if pattern.search(title) and not pattern.search(resume_text):
+            return role
     return None
 
 
@@ -261,6 +285,9 @@ class LocalSemanticMatcher:
         if not lexical.applied:
             return lexical
         role = excluded_role(vacancy.title, self.excluded_titles)
+        unsupported_role = unsupported_specialist_role(
+            vacancy.title, f"{self.resume_title}\n{self.resume_text}"
+        )
         LOGGER.info(
             "Оцениваю вакансию «%s» через Ollama (ожидание до %s сек.).",
             vacancy.title,
@@ -310,13 +337,32 @@ class LocalSemanticMatcher:
                 semantic_mode=self.mode,
                 semantic_verdict="unavailable",
             )
-        final_verdict = "unfit" if role is not None else decision.verdict
+        final_verdict = (
+            "unfit"
+            if role is not None
+            else "unsure"
+            if unsupported_role is not None and decision.verdict == "fit"
+            else decision.verdict
+        )
         reason = (
             f"основная роль: {role}; {decision.reason}" if role is not None else decision.reason
         )
+        if unsupported_role is not None and role is None and decision.verdict == "fit":
+            reason = (
+                f"основная роль — {unsupported_role}; соответствующий опыт "
+                "не подтверждён резюме, требуется ручная проверка"
+            )
         if role is not None:
             LOGGER.info(
                 "Вакансия «%s»: не подходит — %s. Решение Ollama: %s.",
+                vacancy.title,
+                reason,
+                VERDICT_LABELS[decision.verdict],
+                extra=event_data(LogEvent.VACANCY_MATCH, vacancy_title=vacancy.title),
+            )
+        elif unsupported_role is not None and decision.verdict == "fit":
+            LOGGER.info(
+                "Вакансия «%s»: нужна ручная проверка — %s. Решение Ollama: %s.",
                 vacancy.title,
                 reason,
                 VERDICT_LABELS[decision.verdict],

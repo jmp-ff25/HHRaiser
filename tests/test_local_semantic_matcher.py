@@ -12,6 +12,7 @@ from hh_raiser.infrastructure.local_semantic_matcher import (
     excluded_role,
     query_local_model,
     unmentioned_technologies,
+    unsupported_specialist_role,
     vacancy_task_excerpt,
 )
 
@@ -55,6 +56,29 @@ class LocalSemanticMatcherTests(unittest.TestCase):
             "Опыт паттерна ReAct и разработки на Python; React в соседней команде.",
         )
         self.assertNotIn("React не упомянут в резюме", unmentioned_technologies("Python", vacancy))
+
+    def test_specialist_role_requires_resume_evidence(self) -> None:
+        self.assertEqual(
+            unsupported_specialist_role(
+                "Инженер-разработчик SDR / RF / DSP", "Python backend, FastAPI, PostgreSQL"
+            ),
+            "радиосвязь и обработка сигналов",
+        )
+        self.assertEqual(
+            unsupported_specialist_role("Разработчик Middle C++", "Python backend"),
+            "разработка на C++",
+        )
+        self.assertIsNone(
+            unsupported_specialist_role(
+                "Инженер-разработчик SDR / RF / DSP", "Инженер DSP, разработка радиоканала"
+            )
+        )
+        self.assertIsNone(
+            unsupported_specialist_role("Разработчик C++", "Разработчик C++ и Python")
+        )
+        self.assertIsNone(
+            unsupported_specialist_role("AI-разработчик Python", "Python backend, FastAPI")
+        )
 
     def test_short_reason_is_taken_from_vacancy_tasks(self) -> None:
         self.assertEqual(
@@ -103,6 +127,43 @@ class LocalSemanticMatcherTests(unittest.TestCase):
         self.assertIn("подходит — основная задача", message)
         self.assertNotIn(": fit", message)
         self.assertNotIn("Пробелы: нет", message)
+
+    def test_semantic_fit_cannot_auto_respond_to_unrelated_specialist_role(self) -> None:
+        vacancy = VacancyDocument(
+            "Инженер-разработчик SDR / RF / DSP",
+            "Разработка цифрового радиоканала на SDR и обработка сигналов.",
+            ("Python",),
+        )
+        with (
+            patch(
+                "hh_raiser.infrastructure.local_semantic_matcher.query_local_model",
+                return_value=SemanticDecision("fit", "Разработка на Python", ()),
+            ),
+            self.assertLogs("hh_resume_raiser", level="INFO") as captured,
+        ):
+            assessment = self.matcher("semantic").evaluate(vacancy)
+        self.assertEqual(assessment.semantic_verdict, "unsure")
+        self.assertFalse(assessment.accepted)
+        self.assertIn("нужна ручная проверка", "\n".join(captured.output))
+
+    def test_specialist_resume_can_receive_model_fit(self) -> None:
+        matcher = LocalSemanticMatcher(
+            resume_title="Инженер DSP",
+            resume_text="Обработка сигналов, SDR и радиоканал на Python и C++.",
+            threshold=55,
+            mode="semantic",
+            model="qwen3:1.7b",
+            excluded_titles=(),
+        )
+        with patch(
+            "hh_raiser.infrastructure.local_semantic_matcher.query_local_model",
+            return_value=SemanticDecision("fit", "Опыт совпадает", ()),
+        ):
+            assessment = matcher.evaluate(
+                VacancyDocument("Инженер-разработчик SDR / RF / DSP", "Разработка радиоканала")
+            )
+        self.assertTrue(assessment.accepted)
+        self.assertEqual(assessment.semantic_verdict, "fit")
 
     def test_every_vacancy_reaches_ollama_but_other_primary_role_is_blocked(self) -> None:
         vacancy = VacancyDocument(
