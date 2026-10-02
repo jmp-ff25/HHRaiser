@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import os
+import textwrap
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -14,20 +15,30 @@ DEFAULT_VACANCIES_PER_GROUP = 5
 DEFAULT_ACTIVITY_INTERVAL_SECONDS = 300
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
 DEFAULT_VACANCY_MATCHING = True
-DEFAULT_MATCH_THRESHOLD = 55
+DEFAULT_MATCHING_MODEL = "deepseek/deepseek-v4.1-flash"
+DEFAULT_MATCHING_API_URL = "https://polza.ai/api/v1"
 DEFAULT_AUTO_RESPOND = True
 DEFAULT_DAILY_RESPONSE_LIMIT = 0
+DEFAULT_HEADLESS_VIEWPORT_WIDTH = 1920
+DEFAULT_HEADLESS_VIEWPORT_HEIGHT = 1200
+DEFAULT_MATCHING_PROMPT = (
+    Path(__file__).with_name("default_matching_prompt.txt").read_text(encoding="utf-8").strip()
+)
 
 
 @dataclass(frozen=True)
 class FileConfig:
     resume_title: str | None = None
+    headless_viewport_width: int | None = None
+    headless_viewport_height: int | None = None
     search_queries: tuple[str, ...] = ()
     vacancies_per_group: int | None = None
     activity_interval_seconds: int | None = None
     search_pages_per_cycle: int | None = None
     vacancy_matching: bool | None = None
-    match_threshold: int | None = None
+    matching_model: str | None = None
+    matching_api_url: str | None = None
+    matching_prompt: str | None = None
     auto_respond: bool | None = None
     daily_response_limit: int | None = None
     captcha_answer_source: bool | None = None
@@ -37,12 +48,16 @@ class FileConfig:
 @dataclass(frozen=True)
 class RuntimeSettings:
     resume_title: str
+    headless_viewport_width: int
+    headless_viewport_height: int
     search_queries: tuple[str, ...]
     vacancies_per_group: int
     activity_interval_seconds: int
     search_pages_per_cycle: int
     vacancy_matching: bool
-    match_threshold: int
+    matching_model: str
+    matching_api_url: str
+    matching_prompt: str
     auto_respond: bool
     daily_response_limit: int
     captcha_answer_source: bool
@@ -85,6 +100,8 @@ def read_file_config(path: Path) -> FileConfig:
 
     try:
         resume_title = parser.get("resume", "title", fallback="").strip() or None
+        headless_viewport_width = parser.getint("browser", "viewport_width", fallback=None)
+        headless_viewport_height = parser.getint("browser", "viewport_height", fallback=None)
         search_queries = parse_search_queries(parser.get("activity", "search_queries", fallback=""))
         vacancies_per_group = parser.getint("activity", "vacancies_per_group", fallback=None)
         activity_interval_seconds = parser.getint(
@@ -92,7 +109,9 @@ def read_file_config(path: Path) -> FileConfig:
         )
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
-        match_threshold = parser.getint("matching", "threshold", fallback=None)
+        matching_model = parser.get("matching", "model", fallback=None)
+        matching_api_url = parser.get("matching", "api_url", fallback=None)
+        matching_prompt = parser.get("matching", "prompt", fallback=None)
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
         daily_response_limit = parser.getint("responses", "daily_limit", fallback=None)
         captcha_answer_source = parser.getboolean("captchasolution", "enabled", fallback=None)
@@ -116,12 +135,16 @@ def read_file_config(path: Path) -> FileConfig:
         raise ValueError(f"Некорректное значение в INI-файле настроек {path}: {error}") from error
     return FileConfig(
         resume_title=resume_title,
+        headless_viewport_width=headless_viewport_width,
+        headless_viewport_height=headless_viewport_height,
         search_queries=search_queries,
         vacancies_per_group=vacancies_per_group,
         activity_interval_seconds=activity_interval_seconds,
         search_pages_per_cycle=search_pages_per_cycle,
         vacancy_matching=vacancy_matching,
-        match_threshold=match_threshold,
+        matching_model=matching_model,
+        matching_api_url=matching_api_url,
+        matching_prompt=matching_prompt,
         auto_respond=auto_respond,
         daily_response_limit=daily_response_limit,
         captcha_answer_source=captcha_answer_source,
@@ -161,11 +184,21 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         if getattr(args, "vacancy_matching", None) is not None
         else file_config.vacancy_matching
     )
-    match_threshold = (
-        getattr(args, "match_threshold", None)
-        if getattr(args, "match_threshold", None) is not None
-        else file_config.match_threshold
+    matching_model = (
+        getattr(args, "matching_model", None) or file_config.matching_model or DEFAULT_MATCHING_MODEL
     )
+    matching_api_url = file_config.matching_api_url or DEFAULT_MATCHING_API_URL
+    matching_prompt = textwrap.dedent(
+        file_config.matching_prompt
+        if file_config.matching_prompt is not None
+        else DEFAULT_MATCHING_PROMPT
+    ).strip()
+    if not matching_prompt or len(matching_prompt) > 12_000:
+        raise ValueError("matching.prompt должен содержать от 1 до 12000 символов")
+    if not matching_model.strip():
+        raise ValueError("matching.model не может быть пустым")
+    if not matching_api_url.startswith("https://"):
+        raise ValueError("matching.api_url должен использовать HTTPS")
     auto_respond = (
         getattr(args, "auto_respond", None)
         if getattr(args, "auto_respond", None) is not None
@@ -199,6 +232,26 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
     )
     return RuntimeSettings(
         resume_title=resume_title,
+        headless_viewport_width=_validate_range(
+            "browser.viewport_width",
+            (
+                file_config.headless_viewport_width
+                if file_config.headless_viewport_width is not None
+                else DEFAULT_HEADLESS_VIEWPORT_WIDTH
+            ),
+            minimum=1280,
+            maximum=7680,
+        ),
+        headless_viewport_height=_validate_range(
+            "browser.viewport_height",
+            (
+                file_config.headless_viewport_height
+                if file_config.headless_viewport_height is not None
+                else DEFAULT_HEADLESS_VIEWPORT_HEIGHT
+            ),
+            minimum=720,
+            maximum=4320,
+        ),
         search_queries=search_queries,
         vacancies_per_group=_validate_range(
             "activity.vacancies_per_group",
@@ -225,12 +278,9 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         vacancy_matching=(
             vacancy_matching if vacancy_matching is not None else DEFAULT_VACANCY_MATCHING
         ),
-        match_threshold=_validate_range(
-            "matching.threshold",
-            match_threshold if match_threshold is not None else DEFAULT_MATCH_THRESHOLD,
-            minimum=0,
-            maximum=100,
-        ),
+        matching_model=matching_model,
+        matching_api_url=matching_api_url,
+        matching_prompt=matching_prompt,
         auto_respond=(auto_respond if auto_respond is not None else DEFAULT_AUTO_RESPOND),
         daily_response_limit=_validate_range(
             "responses.daily_limit",

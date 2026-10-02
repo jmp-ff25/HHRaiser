@@ -15,30 +15,28 @@ vars:
 # с каталогом проекта.
 env:
   UV_CACHE_DIR: "{{.TASKFILE_DIR}}/.uv-cache"
-  PLAYWRIGHT_BROWSERS_PATH: "{{.TASKFILE_DIR}}/{{.STATE_DIR}}/playwright-browsers"
 
 tasks:
   default:
     desc: Показать доступные команды
     cmds:
       - task --list
+    silent: true
 
   install:
-    desc: Установить зависимости, Chromium и проверить подготовленную конфигурацию
     cmds:
-      - uv sync --locked
-      - uv run --locked playwright install chromium
-      - task: prepare-config
-      - task: prepare-env
-      - uv run --locked hhraiser setup
+      - task: setup
 
   setup:
-    desc: Псевдоним install для первичной установки
+    desc: Установить uv, Python и Chromium; создать шаблоны настроек
     cmds:
-      - task: install
+      - cmd: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+        platforms: [windows]
+      - cmd: ./scripts/setup.sh
+        platforms: [linux, darwin]
 
   install-dev:
-    desc: Установить приложение с инструментами разработки и Chromium
+    desc: Установить инструменты разработки и Chromium
     cmds:
       - uv sync --locked --extra dev
       - uv run --locked playwright install chromium
@@ -84,6 +82,16 @@ tasks:
         source = Path('.env.example');
         target = Path(os.environ['HH_TASK_ENV_FILE']);
         target.write_bytes(source.read_bytes())"
+
+  reset-data-preview:
+    desc: Показать данные, которые удалит reset-data
+    cmds:
+      - uv run --locked python -m hh_raiser.reset_data --dry-run
+
+  reset-data:
+    desc: Удалить журналы, базы, профиль браузера и другое состояние; сохранить конфиги и .env
+    cmds:
+      - uv run --locked python -m hh_raiser.reset_data
 
   init-session:
     desc: Открыть Chromium для первичной авторизации и сохранить сессию
@@ -149,6 +157,14 @@ tasks:
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
+  activity-polza-once:
+    desc: Один видимый цикл оценки Polza AI без откликов; вакансии будут сохранены как оценённые
+    cmds:
+      - >-
+        uv run --locked hh-resume-raiser --once
+        {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}}
+        --no-auto-respond {{.CLI_ARGS}}
+
   activity-responses:
     desc: Просматривать вакансии и безопасно откликаться без обязательных форм
     cmds:
@@ -182,20 +198,12 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   full-activity-responses:
-    desc: Запустить все возможности и безопасные отклики в фоновом режиме
     cmds:
-      - >-
-        uv run --locked hh-resume-raiser --headless
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
-        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+      - task: full-activity
 
   full-activity-responses-ui:
-    desc: Запустить все возможности и безопасные отклики в видимом Chromium
     cmds:
-      - >-
-        uv run --locked hh-resume-raiser
-        {{.ACTIVITY_ARGS}} {{.RESUME_REFRESH_ARGS}} {{.RESPONSE_ARGS}}
-        {{.COMMON_ARGS}} {{.CLI_ARGS}}
+      - task: full-activity-ui
 
   full-activity-once:
     desc: Выполнить один полный цикл в видимом Chromium
@@ -224,7 +232,7 @@ tasks:
       - uv run --locked --extra dev python -m unittest tests.test_resume_index_live -v
 
   full-activity-reset-history:
-    desc: Начать новое поколение истории и запустить полный фоновый режим
+    desc: Начать новый цикл просмотра вакансий без удаления БД и запустить фоновый режим
     cmds:
       - >-
         uv run --locked hh-resume-raiser --headless --reset-vacancy-history
@@ -232,9 +240,22 @@ tasks:
         {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
   help:
-    desc: Показать все низкоуровневые параметры приложения
+    desc: Показать список команд проекта с краткими пояснениями
+    cmds:
+      - task --list
+    silent: true
+
+  help-cli:
+    desc: Показать все низкоуровневые параметры hh-resume-raiser
     cmds:
       - uv run --locked hh-resume-raiser --help
+
+  responses-on-date:
+    desc: Проверить цель подтверждённых откликов за дату Москвы; DATE=ГГГГ-ММ-ДД TARGET=число
+    requires:
+      vars: [DATE, TARGET]
+    cmds:
+      - uv run --locked hhraiser responses --date {{.DATE}} --target {{.TARGET}}
 
   log-colors:
     desc: Показать палитру уровней и категорий логов без запуска браузера

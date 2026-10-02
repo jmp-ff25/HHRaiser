@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import unittest
 from collections import Counter
-from datetime import datetime
+from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -13,7 +15,8 @@ from hh_raiser.bot.presentation import (
     format_periodic_summary,
     format_statistics,
 )
-from hh_raiser.bot.statistics import read_instance_statistics
+from hh_raiser.bot.statistics import read_instance_statistics, sent_counts_by_moscow_day
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.models import MOSCOW
@@ -31,7 +34,12 @@ class BotStatisticsTests(unittest.TestCase):
                 limit=1,
                 revisit_after_days=0,
             )
-            history.mark_evaluated(url, score=72, accepted=True)
+            history.record_model_evaluation(
+                url,
+                resume_fingerprint="resume",
+                model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Совпадают задачи", ()),
+            )
             history.mark_viewed(url)
             history.record_response(
                 VacancyResponseRecord.now(
@@ -56,8 +64,8 @@ class BotStatisticsTests(unittest.TestCase):
         self.assertEqual(statistics.viewed_vacancies, 1)
         self.assertEqual(statistics.total_views, 1)
         self.assertEqual(statistics.evaluated, 1)
-        self.assertEqual(statistics.average_match_score, 72)
         self.assertEqual(statistics.responses_by_status["sent"], 1)
+        self.assertEqual(statistics.today_sent, 1)
         self.assertEqual(statistics.next_raise_at, next_raise)
 
     def test_missing_database_produces_empty_statistics(self) -> None:
@@ -66,6 +74,64 @@ class BotStatisticsTests(unittest.TestCase):
 
         self.assertEqual(statistics.discovered, 0)
         self.assertEqual(statistics.responses_by_status, {})
+        self.assertEqual(statistics.pending_responses, 0)
+
+    def test_pending_fit_is_counted_separately_from_sent_and_manual_responses(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            history = VacancyHistory(state_dir / "vacancy-history.sqlite3")
+            for vacancy_id in ("1", "2", "3"):
+                history.record_model_evaluation(
+                    f"https://hh.ru/vacancy/{vacancy_id}",
+                    resume_fingerprint="resume",
+                    model="deepseek",
+                    decision=ModelDecision("fit", "Подходит", ()),
+                    pending_response=True,
+                )
+            for vacancy_id, status in (
+                ("2", VacancyResponseStatus.SENT),
+                ("3", VacancyResponseStatus.MANUAL_REQUIRED),
+            ):
+                history.record_response(
+                    VacancyResponseRecord.now(
+                        vacancy_id=vacancy_id,
+                        status=status,
+                        detail="HH подтвердил исход",
+                        vacancy_title="Python",
+                        company_name="Example",
+                        search_query="Python",
+                        match_score=None,
+                    )
+                )
+
+            statistics = read_instance_statistics(state_dir)
+
+        self.assertEqual(statistics.pending_responses, 1)
+        self.assertEqual(statistics.responses_by_status["sent"], 1)
+        self.assertEqual(statistics.responses_by_status["manual_required"], 1)
+
+    def test_reads_legacy_history_before_worker_migrates_it(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            with (
+                closing(sqlite3.connect(state_dir / "vacancy-history.sqlite3")) as connection,
+                connection,
+            ):
+                connection.executescript(
+                    """
+                    CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT INTO metadata VALUES ('current_generation', '1');
+                    CREATE TABLE vacancies(
+                        vacancy_id TEXT PRIMARY KEY, last_viewed_at TEXT,
+                        view_count INTEGER, last_evaluated_at TEXT, last_match_score INTEGER
+                    );
+                    INSERT INTO vacancies VALUES ('123', NULL, 0, '2026-09-26', 42);
+                    CREATE TABLE vacancy_responses(status TEXT, occurred_at TEXT);
+                    """
+                )
+            statistics = read_instance_statistics(state_dir)
+        self.assertEqual(statistics.evaluated, 0)
+        self.assertEqual(statistics.semantic_verdicts, {})
 
     def test_presentation_explains_counters_and_escapes_logs(self) -> None:
         with TemporaryDirectory() as directory:
@@ -107,9 +173,14 @@ class BotStatisticsTests(unittest.TestCase):
             viewed_vacancies=5,
             total_views=5,
             evaluated=5,
-            average_match_score=70,
             responses_by_status=Counter({"sent": 1, "already_sent": 5, "manual_required": 1}),
             next_raise_at=None,
+            today_sent=1,
+            pending_responses=2,
+            daily_limit=15,
+            responses_enabled=True,
+            matching_mode="polza",
+            semantic_verdicts={"fit": 2, "unfit": 3},
         )
 
         text = format_statistics(instance, statistics)
@@ -119,8 +190,65 @@ class BotStatisticsTests(unittest.TestCase):
             statistics,
         )
 
-        self.assertIn("Учтено вакансий с откликом: <b>7</b>", text)
+        self.assertIn("Учтено исходов обработки вакансий: <b>7</b>", text)
+        self.assertIn("Оценок через Polza AI: <b>5</b>", text)
+        self.assertIn("подходит: 2", text)
+        self.assertIn("Подтверждённые отклики сегодня (Москва): 1 из 15", text)
+        self.assertIn("Подходящих вакансий ожидают отклика: <b>2</b>", text)
         self.assertIn("отклик уже существовал до обработки HHRaiser: 5", text)
-        self.assertIn("отправлено HHRaiser: 1", summary)
+        self.assertIn("подтверждено сегодня: 1 из 15", summary)
+        self.assertIn("ожидают отклика: 2", summary)
+        self.assertIn("отправлено HHRaiser за всё время: 1", summary)
         self.assertIn("уже были отправлены: 5", summary)
         self.assertIn("требуют вашего участия: 1", summary)
+
+    def test_moscow_daily_count_ignores_non_sends_and_converts_utc(self) -> None:
+        rows = [
+            ("sent", "2026-09-26T20:59:00+00:00"),
+            ("sent", "2026-09-26T21:00:00+00:00"),
+            ("sent", "2026-09-27T20:59:00+00:00"),
+            ("sent", "2026-09-27T21:00:00+00:00"),
+            ("already_sent", "2026-09-27T10:00:00+03:00"),
+            ("manual_required", "2026-09-27T11:00:00+03:00"),
+        ]
+        counts = sent_counts_by_moscow_day(rows)
+        self.assertEqual(counts["2026-09-27"], 2)
+        self.assertEqual(counts["2026-09-28"], 1)
+
+    def test_reads_semantic_verdicts_and_today_target_from_config(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            history = VacancyHistory(state_dir / "vacancy-history.sqlite3")
+            url = "https://hh.ru/vacancy/123"
+            history.reserve_unseen(urls=[url], search_query="Python", limit=1, revisit_after_days=0)
+            history.record_model_evaluation(
+                url,
+                resume_fingerprint="resume",
+                model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Совпадают задачи", ()),
+            )
+            history.record_response(
+                VacancyResponseRecord(
+                    vacancy_id="123",
+                    occurred_at=datetime(2026, 9, 26, 21, 30, tzinfo=UTC),
+                    status=VacancyResponseStatus.SENT,
+                    detail="Отправлен",
+                    vacancy_title="RAG developer",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=20,
+                )
+            )
+            config = state_dir / "hh-config.ini"
+            config.write_text(
+                "[matching]\nenabled = true\n[responses]\nenabled = true\ndaily_limit = 25\n",
+                encoding="utf-8",
+            )
+            statistics = read_instance_statistics(
+                state_dir,
+                config_file=config,
+                now=datetime(2026, 9, 27, 12, tzinfo=UTC),
+            )
+        self.assertEqual(statistics.today_sent, 1)
+        self.assertEqual(statistics.daily_limit, 25)
+        self.assertEqual(statistics.semantic_verdicts, {"fit": 1})

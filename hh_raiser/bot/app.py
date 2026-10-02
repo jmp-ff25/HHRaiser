@@ -205,7 +205,9 @@ class TelegramControlBot:
 
     async def _show_statistics(self, query: CallbackQuery, instance: ManagedInstance) -> None:
         try:
-            statistics = await asyncio.to_thread(read_instance_statistics, instance.state_dir)
+            statistics = await asyncio.to_thread(
+                read_instance_statistics, instance.state_dir, config_file=instance.config_file
+            )
             text = format_statistics(instance, statistics)
         except StatisticsReadError as error:
             text = f"🔴 {escape(str(error))}"
@@ -595,7 +597,9 @@ class TelegramControlBot:
                     if not snapshot.is_active:
                         continue
                     statistics = await asyncio.to_thread(
-                        read_instance_statistics, instance.state_dir
+                        read_instance_statistics,
+                        instance.state_dir,
+                        config_file=instance.config_file,
                     )
                     parts.append(format_periodic_summary(instance, snapshot, statistics))
                 except (ServiceCommandError, StatisticsReadError) as error:

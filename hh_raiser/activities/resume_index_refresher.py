@@ -33,6 +33,13 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
+class ResumeDiscoveryTimeout(PlaywrightTimeoutError):
+    def __init__(self, phase: str, page_kind: str) -> None:
+        super().__init__(phase)
+        self.phase = phase
+        self.page_kind = page_kind
+
+
 @dataclass(frozen=True)
 class ResumeMarkerState:
     target_index: int
@@ -168,6 +175,19 @@ def _timeout_detail(stage: str) -> str:
     return f"Интерфейс не подтвердил этап «{stage}»; сохранение автоматически не повторяется."
 
 
+def _page_kind(page: Page) -> str:
+    path = urlsplit(page.url).path
+    if path == urlsplit(PROFILE_URL).path:
+        return "профиль"
+    if path.startswith("/resume/"):
+        return "страница резюме"
+    if "captcha" in path:
+        return "страница CAPTCHA"
+    if "login" in path or "account" in path:
+        return "страница входа"
+    return "другая страница"
+
+
 def _edit_button_state(page: Page) -> str:
     buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
     try:
@@ -225,30 +245,46 @@ def _open_resume_experience_controls(
 ) -> tuple[Locator, int] | None:
     """Открыть кнопки опыта, повторив только безопасный этап загрузки страницы."""
     for attempt in range(_RESUME_DISCOVERY_ATTEMPTS):
+        phase = "переход в профиль"
         try:
             page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            phase = "проверка CAPTCHA в профиле"
             if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                phase = "повторный переход в профиль после CAPTCHA"
                 page.goto(PROFILE_URL, wait_until="domcontentloaded")
+            phase = "закрытие окна hh PRO в профиле"
             dismiss_hh_pro_modal(page)
 
             resume_cards = page.locator(RESUME_CARD)
+            phase = "ожидание карточки резюме в профиле"
             resume_cards.first.wait_for(state="visible", timeout=15_000)
+            phase = "поиск выбранного резюме"
             resume_url = _profile_resume_url(page, resume_title)
             if resume_url is None:
                 if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
                     return None
                 continue
 
+            phase = "переход на страницу выбранного резюме"
             page.goto(resume_url, wait_until="domcontentloaded")
+            phase = "проверка CAPTCHA на странице резюме"
             if resolve_captcha(captcha_guard, page, stop_requested=stop_requested):
+                phase = "повторный переход к резюме после CAPTCHA"
                 page.goto(resume_url, wait_until="domcontentloaded")
+            phase = "закрытие окна hh PRO на странице резюме"
             dismiss_hh_pro_modal(page)
 
+            phase = "раскрытие списка опыта"
             _expand_experience_if_collapsed(page)
             edit_buttons = page.locator(EXPERIENCE_EDIT_BUTTON)
+            phase = "ожидание кнопки редактирования опыта"
             edit_buttons.first.wait_for(state="visible", timeout=15_000)
         except PlaywrightError as error:
-            if is_closed_playwright_error(error) or attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+            if is_closed_playwright_error(error):
+                raise
+            if attempt + 1 == _RESUME_DISCOVERY_ATTEMPTS:
+                if isinstance(error, PlaywrightTimeoutError):
+                    raise ResumeDiscoveryTimeout(phase, _page_kind(page)) from error
                 raise
             continue
 
@@ -573,6 +609,23 @@ def refresh_resume_index(
                 "target_index": target_index,
                 "legacy_repair": operation == "repaired",
             },
+        )
+    except ResumeDiscoveryTimeout as error:
+        discovery_detail = f"{error.phase} (текущая страница: {error.page_kind})"
+        if stage == "повторная загрузка сохранённого опыта":
+            detail = (
+                f"После сохранения не удалось заново открыть опыт: {discovery_detail}. "
+                "Локальный маркер сохранён для повторной проверки."
+            )
+        else:
+            detail = (
+                f"Не удалось открыть опыт резюме за {_RESUME_DISCOVERY_ATTEMPTS} попытки: "
+                f"{discovery_detail}. Редактирование и сохранение не начинались."
+            )
+        return ActivityResult(
+            action=ActivityKind.REFRESH_RESUME_INDEX,
+            status=ActivityStatus.UNKNOWN,
+            detail=detail,
         )
     except PlaywrightTimeoutError:
         detail = _timeout_detail(stage)

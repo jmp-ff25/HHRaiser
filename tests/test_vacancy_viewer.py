@@ -101,13 +101,10 @@ class VacancyViewerTests(unittest.TestCase):
         page = FakeVacancyPage()
         matcher = Mock()
         matcher.evaluate.return_value = MatchAssessment(
-            score=12,
             accepted=False,
             applied=True,
-            title_similarity=0.0,
-            bm25f_relevance=0.0,
-            skills_coverage=0.0,
-            lexical_similarity=0.0,
+            semantic_verdict="unfit",
+            semantic_reason="Другая специальность",
         )
 
         with patch("hh_raiser.activities.vacancy_viewer.dismiss_hh_pro_modal"):
@@ -133,13 +130,10 @@ class VacancyViewerTests(unittest.TestCase):
         page = FakeVacancyPage()
         matcher = Mock()
         matcher.evaluate.return_value = MatchAssessment(
-            score=12,
             accepted=False,
             applied=True,
-            title_similarity=0.0,
-            bm25f_relevance=0.0,
-            skills_coverage=0.0,
-            lexical_similarity=0.0,
+            semantic_verdict="unfit",
+            semantic_reason="Другая специальность",
         )
 
         with patch("hh_raiser.activities.vacancy_viewer.dismiss_hh_pro_modal"):
@@ -161,6 +155,33 @@ class VacancyViewerTests(unittest.TestCase):
         self.assertFalse(outcomes[0].result.metadata["match_accepted"])
         self.assertEqual(outcomes[0].result.metadata["scrolls_completed"], 2)
         self.assertEqual(page.body.press_calls, ["PageDown", "PageDown"])
+
+    def test_semantic_mode_does_not_log_lexical_score(self) -> None:
+        page = FakeVacancyPage()
+        matcher = Mock()
+        matcher.evaluate.return_value = MatchAssessment(
+            accepted=True,
+            applied=True,
+            semantic_verdict="fit",
+            semantic_reason="Основные задачи совпадают",
+        )
+        with (
+            patch("hh_raiser.activities.vacancy_viewer.dismiss_hh_pro_modal"),
+            self.assertLogs("hh_resume_raiser", level="INFO") as captured,
+        ):
+            list(
+                view_vacancies(
+                    page,
+                    ["https://hh.ru/vacancy/123"],
+                    ActivityPolicy(
+                        vacancy_scrolls=0,
+                        scroll_pause_seconds=0,
+                        vacancy_view_seconds=0,
+                    ),
+                    matcher=matcher,
+                )
+            )
+        self.assertNotIn("Лексическая оценка", "\n".join(captured.output))
 
     def test_title_is_safe_for_single_line_log(self) -> None:
         self.assertEqual(

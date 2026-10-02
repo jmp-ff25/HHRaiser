@@ -152,17 +152,6 @@ EDITABLE_SETTINGS: tuple[EditableSetting, ...] = (
         "Включает оценку соответствия вакансии резюме.",
     ),
     EditableSetting(
-        "match_threshold",
-        "matching",
-        "Порог соответствия",
-        "matching",
-        "threshold",
-        SettingKind.INTEGER,
-        "Введите процент от 0 до 100.",
-        minimum=0,
-        maximum=100,
-    ),
-    EditableSetting(
         "responses_enabled",
         "responses",
         "Автоматические отклики",

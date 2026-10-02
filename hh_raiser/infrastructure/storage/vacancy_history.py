@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 import random
 import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import (
     ManualResponseReason,
     VacancyResponseRecord,
@@ -35,6 +37,22 @@ class VacancyReservation:
     discovered_count: int
     newly_discovered_count: int
     eligible_count: int
+
+
+@dataclass(frozen=True)
+class DailyResponseSummary:
+    day: date
+    sent: int
+    already_sent: int
+    manual_required: int
+    unknown: int
+    unavailable: int
+    error: int
+
+    def meets_target(self, target: int) -> bool:
+        if target < 0:
+            raise ValueError("target must be non-negative")
+        return self.sent >= target
 
 
 def vacancy_id_from_url(url: str) -> str | None:
@@ -83,6 +101,8 @@ class VacancyHistory:
                     last_evaluated_generation INTEGER,
                     last_match_score INTEGER,
                     last_match_accepted INTEGER,
+                    last_matching_mode TEXT,
+                    last_semantic_verdict TEXT,
                     reserved_generation INTEGER,
                     reserved_until TEXT
                 );
@@ -117,6 +137,21 @@ class VacancyHistory:
                 CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status_time
                 ON vacancy_responses(status, occurred_at);
 
+                CREATE TABLE IF NOT EXISTS vacancy_model_evaluations (
+                    vacancy_id TEXT NOT NULL REFERENCES vacancies(vacancy_id),
+                    resume_fingerprint TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    verdict TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    gaps_json TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_rub REAL,
+                    response_state TEXT NOT NULL DEFAULT 'review_only',
+                    PRIMARY KEY (vacancy_id, resume_fingerprint)
+                );
+
                 CREATE TABLE IF NOT EXISTS search_page_coverage (
                     search_query TEXT NOT NULL,
                     page INTEGER NOT NULL,
@@ -141,6 +176,8 @@ class VacancyHistory:
                 "last_evaluated_generation": "INTEGER",
                 "last_match_score": "INTEGER",
                 "last_match_accepted": "INTEGER",
+                "last_matching_mode": "TEXT",
+                "last_semantic_verdict": "TEXT",
             }
             for column, definition in migrations.items():
                 if column not in columns:
@@ -152,6 +189,15 @@ class VacancyHistory:
             if "post_response_modal_text" not in response_columns:
                 connection.execute(
                     "ALTER TABLE vacancy_responses ADD COLUMN post_response_modal_text TEXT"
+                )
+            evaluation_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(vacancy_model_evaluations)")
+            }
+            if "response_state" not in evaluation_columns:
+                connection.execute(
+                    "ALTER TABLE vacancy_model_evaluations "
+                    "ADD COLUMN response_state TEXT NOT NULL DEFAULT 'review_only'"
                 )
 
     @property
@@ -392,29 +438,90 @@ class VacancyHistory:
                 (datetime.now(MOSCOW).isoformat(), generation, vacancy_id),
             )
 
-    def mark_evaluated(self, url: str, *, score: int, accepted: bool) -> None:
+    def model_evaluation(self, url: str, resume_fingerprint: str) -> ModelDecision | None:
+        """Read only a paid model decision for the same resume; old scores do not qualify."""
         vacancy_id = vacancy_id_from_url(url)
         if vacancy_id is None:
-            return
+            return None
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT verdict, reason, gaps_json, input_tokens, output_tokens, cost_rub
+                FROM vacancy_model_evaluations
+                WHERE vacancy_id = ? AND resume_fingerprint = ?""",
+                (vacancy_id, resume_fingerprint),
+            ).fetchone()
+        if row is None:
+            return None
+        return ModelDecision(
+            verdict=str(row[0]),
+            reason=str(row[1]),
+            gaps=tuple(json.loads(str(row[2]))),
+            input_tokens=int(row[3]),
+            output_tokens=int(row[4]),
+            cost_rub=float(row[5]) if row[5] is not None else None,
+        )
+
+    def pending_model_response(self, url: str, resume_fingerprint: str) -> bool:
+        """A paid fit requested in auto-response mode still needs an HH outcome."""
+
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return False
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT 1 FROM vacancy_model_evaluations AS evaluation
+                WHERE evaluation.vacancy_id = ? AND evaluation.resume_fingerprint = ?
+                  AND evaluation.verdict = 'fit' AND evaluation.response_state = 'pending'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM vacancy_responses AS response
+                      WHERE response.vacancy_id = evaluation.vacancy_id
+                        AND response.status IN ('sent', 'manual_required', 'already_sent', 'unknown')
+                  )""",
+                (vacancy_id, resume_fingerprint),
+            ).fetchone()
+        return row is not None
+
+    def record_model_evaluation(
+        self,
+        url: str,
+        *,
+        resume_fingerprint: str,
+        model: str,
+        decision: ModelDecision,
+        pending_response: bool = False,
+    ) -> bool:
+        """Persist the API result immediately, before browser scrolling can fail."""
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return False
+        now = datetime.now(MOSCOW).isoformat()
         with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            generation = self._read_generation(connection)
             connection.execute(
-                """
-                UPDATE vacancies
-                SET last_evaluated_at = ?, last_evaluated_generation = ?,
-                    last_match_score = ?, last_match_accepted = ?,
-                    reserved_generation = NULL, reserved_until = NULL
-                WHERE vacancy_id = ?
-                """,
+                """INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vacancy_id) DO UPDATE SET last_seen_at = excluded.last_seen_at""",
+                (vacancy_id, now, now),
+            )
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO vacancy_model_evaluations
+                (vacancy_id, resume_fingerprint, evaluated_at, model, verdict, reason,
+                 gaps_json, input_tokens, output_tokens, cost_rub, response_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    datetime.now(MOSCOW).isoformat(),
-                    generation,
-                    score,
-                    int(accepted),
                     vacancy_id,
+                    resume_fingerprint,
+                    now,
+                    model,
+                    decision.verdict,
+                    decision.reason,
+                    json.dumps(decision.gaps, ensure_ascii=False),
+                    decision.input_tokens,
+                    decision.output_tokens,
+                    decision.cost_rub,
+                    "pending" if pending_response and decision.verdict == "fit" else "review_only",
                 ),
             )
+        return cursor.rowcount > 0
 
     def has_response_record(self, url: str) -> bool:
         vacancy_id = vacancy_id_from_url(url)
@@ -485,6 +592,13 @@ class VacancyHistory:
                     record.post_response_modal_text,
                 ),
             )
+            if cursor.rowcount and record.status in TERMINAL_RESPONSE_STATUSES:
+                connection.execute(
+                    """UPDATE vacancy_model_evaluations
+                    SET response_state = 'resolved'
+                    WHERE vacancy_id = ? AND response_state = 'pending'""",
+                    (record.vacancy_id,),
+                )
         return cursor.rowcount > 0
 
     def response_records(self) -> list[VacancyResponseRecord]:
@@ -532,6 +646,30 @@ class VacancyHistory:
                 ),
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def response_summary_on(self, day: date) -> DailyResponseSummary:
+        """Count stored outcomes by Moscow date; only confirmed new sends count."""
+
+        counts = {status.value: 0 for status in VacancyResponseStatus}
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                "SELECT status, occurred_at FROM vacancy_responses"
+            ).fetchall()
+        for status, timestamp in rows:
+            occurred_at = datetime.fromisoformat(str(timestamp))
+            if occurred_at.tzinfo is None:
+                occurred_at = occurred_at.replace(tzinfo=MOSCOW)
+            if occurred_at.astimezone(MOSCOW).date() == day:
+                counts[str(status)] += 1
+        return DailyResponseSummary(
+            day=day,
+            sent=counts[VacancyResponseStatus.SENT.value],
+            already_sent=counts[VacancyResponseStatus.ALREADY_SENT.value],
+            manual_required=counts[VacancyResponseStatus.MANUAL_REQUIRED.value],
+            unknown=counts[VacancyResponseStatus.UNKNOWN.value],
+            unavailable=counts[VacancyResponseStatus.UNAVAILABLE.value],
+            error=counts[VacancyResponseStatus.ERROR.value],
+        )
 
     def release(self, url: str) -> None:
         vacancy_id = vacancy_id_from_url(url)

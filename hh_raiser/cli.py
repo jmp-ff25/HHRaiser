@@ -55,6 +55,24 @@ class BrowserClosedDuringWait(RuntimeError):
     """Сигнал основному циклу: браузер закрыт и разрешён явный перезапуск."""
 
 
+_RESPONSE_SKIP_LABELS = (
+    ("unfit", "модель сочла неподходящими"),
+    ("unsure", "модель не уверена"),
+    ("model_unavailable", "оценка модели недоступна"),
+    ("model_cached", "уже оценены моделью ранее"),
+    ("response_in_history", "результат отклика уже есть в БД"),
+    ("daily_limit", "достигнут дневной лимит"),
+    ("auto_disabled", "автоотклики выключены"),
+    ("view_incomplete", "страница не распознана полностью"),
+)
+_OTHER_RESPONSE_LABELS = (
+    ("already_sent", "HH нашёл прежний отклик"),
+    ("unavailable", "кнопка отклика недоступна"),
+    ("unknown", "исход отклика неясен"),
+    ("error", "ошибка отклика"),
+)
+
+
 @contextmanager
 def graceful_interrupt() -> Iterator[threading.Event]:
     """Turn terminal and service stop signals into a cooperative shutdown request."""
@@ -89,7 +107,12 @@ def resume_wait_delay(
     return delay if delay > 0 else poll_seconds
 
 
-def log_activity_results(results: list[ActivityResult]) -> None:
+def log_activity_results(
+    results: list[ActivityResult],
+    *,
+    today_sent: int | None = None,
+    daily_response_limit: int = 0,
+) -> None:
     """Вывести компактные сводки вместо одинаковой строки для каждой вакансии."""
     search_results = [result for result in results if result.action == ActivityKind.REVIEW_SEARCH]
     vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
@@ -120,21 +143,6 @@ def log_activity_results(results: list[ActivityResult]) -> None:
                     result.detail,
                     extra=event_data(LogEvent.RESPONSE_MANUAL),
                 )
-        response_counts = Counter(
-            str(result.metadata.get("response_status") or "unknown") for result in response_results
-        )
-        LOGGER.info(
-            "Итоги откликов: успешно — %s; требуется участие кандидата — %s; "
-            "уже отправлено — %s; недоступно — %s; неизвестный результат — %s; ошибки — %s.",
-            response_counts["sent"],
-            response_counts["manual_required"],
-            response_counts["already_sent"],
-            response_counts["unavailable"],
-            response_counts["unknown"],
-            response_counts["error"],
-            extra=event_data(LogEvent.REPORT, report_kind="responses"),
-        )
-
     if search_results:
         search_counts = Counter(result.status for result in search_results)
         LOGGER.info(
@@ -149,27 +157,74 @@ def log_activity_results(results: list[ActivityResult]) -> None:
 
     if not vacancy_results:
         return
-    if len(vacancy_results) == 1 and vacancy_results[0].status == ActivityStatus.SKIPPED:
-        result = vacancy_results[0]
-        LOGGER.info(
-            "Активность %s: %s — %s",
-            result.action,
-            result.status,
-            result.detail,
-            extra=event_data(LogEvent.VACANCY_VIEW),
-        )
-        return
-
-    counts = Counter(result.status for result in vacancy_results)
-    LOGGER.info(
-        "Итоги просмотра вакансий: успешно — %s; неизвестный результат — %s; "
-        "ошибки — %s; пропущено — %s.",
-        counts[ActivityStatus.SUCCESS],
-        counts[ActivityStatus.UNKNOWN],
-        counts[ActivityStatus.ERROR],
-        counts[ActivityStatus.SKIPPED],
-        extra=event_data(LogEvent.REPORT, report_kind="vacancy_views"),
+    first = vacancy_results[0]
+    group_index = first.metadata.get("group_index") or 1
+    group_count = first.metadata.get("group_count") or 1
+    group_size = first.metadata.get("group_size") or len(vacancy_results)
+    view_counts = Counter(result.status for result in vacancy_results)
+    response_counts = Counter(
+        str(result.metadata.get("response_status") or "unknown") for result in response_results
     )
+    skip_counts = Counter(
+        str(result.metadata["response_skip_reason"])
+        for result in vacancy_results
+        if result.metadata.get("response_skip_reason")
+    )
+    unclassified = len(vacancy_results) - len(response_results) - sum(skip_counts.values())
+    if unclassified > 0:
+        skip_counts["unclassified"] = unclassified
+    skipped_response = sum(skip_counts.values())
+    viewed = view_counts[ActivityStatus.SUCCESS]
+    LOGGER.info(
+        "Группа %s из %s: обработано вакансий — %s из %s; просмотрено — %s; "
+        "просмотр не завершён — %s.",
+        group_index,
+        group_count,
+        len(vacancy_results),
+        group_size,
+        viewed,
+        len(vacancy_results) - viewed,
+        extra=event_data(LogEvent.REPORT, report_kind="vacancy_group"),
+    )
+    outcome_parts = [
+        f"новый отклик подтверждён HH — {response_counts['sent']}",
+        f"нужна помощь кандидата (отклик не отправлен) — {response_counts['manual_required']}",
+    ]
+    outcome_parts.extend(
+        f"{label} — {response_counts[status]}"
+        for status, label in _OTHER_RESPONSE_LABELS
+        if response_counts[status]
+    )
+    outcome_parts.append(f"без проверки отклика — {skipped_response}")
+    LOGGER.info(
+        "Итог группы (%s вакансий): %s.",
+        len(vacancy_results),
+        "; ".join(outcome_parts),
+        extra=event_data(LogEvent.REPORT, report_kind="responses"),
+    )
+    if skipped_response:
+        skip_parts = [
+            f"{label} — {skip_counts[reason]}"
+            for reason, label in _RESPONSE_SKIP_LABELS
+            if skip_counts[reason]
+        ]
+        if skip_counts["unclassified"]:
+            skip_parts.append(f"причина не указана — {skip_counts['unclassified']}")
+        LOGGER.info(
+            "Без проверки отклика: %s.",
+            "; ".join(skip_parts),
+            extra=event_data(LogEvent.REPORT, report_kind="response_skips"),
+        )
+    if today_sent is not None:
+        limit_text = (
+            f"из {daily_response_limit}" if daily_response_limit > 0 else "без дневного лимита"
+        )
+        LOGGER.info(
+            "Сегодня (МСК): подтверждено новых откликов — %s %s.",
+            today_sent,
+            limit_text,
+            extra=event_data(LogEvent.REPORT, report_kind="daily_responses"),
+        )
     for result in vacancy_results:
         if result.status in {ActivityStatus.ERROR, ActivityStatus.UNKNOWN}:
             LOGGER.warning(
@@ -229,6 +284,29 @@ def chromium_launch_args(*, debug_cdp_port: int | None) -> list[str]:
     return launch_args
 
 
+def launch_chromium_context(
+    playwright: object, profile_dir: Path, args: argparse.Namespace
+) -> object:
+    """Use a desktop viewport in headless mode and the real window in UI mode."""
+    viewport_options = (
+        {
+            "viewport": {
+                "width": args.headless_viewport_width,
+                "height": args.headless_viewport_height,
+            }
+        }
+        if args.headless
+        else {"no_viewport": True}
+    )
+    return playwright.chromium.launch_persistent_context(
+        str(profile_dir),
+        headless=args.headless,
+        **viewport_options,
+        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
+        timeout=30_000,
+    )
+
+
 def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
     """Собрать единую политику из уже проверенных CLI- и INI-настроек."""
 
@@ -240,7 +318,9 @@ def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
         scroll_pause_seconds=args.scroll_pause_seconds,
         vacancy_view_seconds=args.vacancy_view_seconds,
         vacancy_matching=args.vacancy_matching,
-        match_threshold=args.match_threshold,
+        matching_model=args.matching_model,
+        matching_api_url=args.matching_api_url,
+        matching_prompt=args.matching_prompt,
         auto_respond=args.auto_respond,
         daily_response_limit=args.daily_response_limit,
         search_filters=args.search_filters,
@@ -412,10 +492,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Проверять соответствие вакансии резюме до содержательного просмотра.",
     )
     parser.add_argument(
-        "--match-threshold",
-        type=lambda value: bounded_non_negative_int(value, maximum=100),
+        "--matching-model",
         default=None,
-        help="Минимальная оценка соответствия для просмотра вакансии, от 0 до 100.",
+        help="Модель Polza AI для оценки вакансий (по умолчанию deepseek/deepseek-v4.1-flash).",
     )
     parser.add_argument(
         "--auto-respond",
@@ -465,13 +544,7 @@ def run_browser_context(
 
     should_stop = stop_requested or (lambda: False)
     LOGGER.info("Запускаю Chromium...", extra=event_data(LogEvent.BROWSER))
-    context = playwright.chromium.launch_persistent_context(
-        str(args.profile_dir),
-        headless=args.headless,
-        no_viewport=True,
-        args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
-        timeout=30_000,
-    )
+    context = launch_chromium_context(playwright, args.profile_dir, args)
     if args.debug_cdp_port is not None:
         LOGGER.info(
             "Локальная диагностика CDP доступна по 127.0.0.1:%s.",
@@ -567,7 +640,11 @@ def run_browser_context(
                 next_activity_at is None or datetime.now(MOSCOW) >= next_activity_at
             ):
                 results = orchestrator.run(page)
-                log_activity_results(results)
+                log_activity_results(
+                    results,
+                    today_sent=orchestrator.history.sent_response_count_today(),
+                    daily_response_limit=orchestrator.policy.daily_response_limit,
+                )
                 next_activity_at = datetime.now(MOSCOW) + timedelta(
                     seconds=args.activity_interval_seconds
                 )
@@ -635,10 +712,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.wasSuccessful() else 1
 
     args.profile_dir = args.profile_dir.resolve()
-    browser_dir = args.profile_dir.parent / "playwright-browsers"
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browser_dir)
     if args.install_browser:
-        args.profile_dir.parent.mkdir(parents=True, exist_ok=True)
         return subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=False
         ).returncode
@@ -653,16 +727,29 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     args.resume_title = settings.resume_title
+    args.headless_viewport_width = settings.headless_viewport_width
+    args.headless_viewport_height = settings.headless_viewport_height
     args.vacancies_per_cycle = settings.vacancies_per_group
     args.activity_interval_seconds = settings.activity_interval_seconds
     args.search_queries = settings.search_queries
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.vacancy_matching = settings.vacancy_matching
-    args.match_threshold = settings.match_threshold
+    args.matching_model = settings.matching_model
+    args.matching_api_url = settings.matching_api_url
+    args.matching_prompt = settings.matching_prompt
     args.auto_respond = settings.auto_respond
     args.daily_response_limit = settings.daily_response_limit
     args.captcha_answer_source = settings.captcha_answer_source
     args.search_filters = settings.search_filters
+    if (
+        args.full_activity
+        and args.vacancy_matching
+        and not (
+            os.environ.get("HHRAISER_MATCHING_API_KEY")
+            or os.environ.get("POLZA_MATCHING_TEST_API_KEY")
+        )
+    ):
+        parser.error("Для оценки вакансий задайте HHRAISER_MATCHING_API_KEY в .env")
     if args.full_activity and args.search_filters.areas:
         try:
             resolved_areas = resolve_current_areas(args.search_filters.areas)
@@ -696,13 +783,7 @@ def main(argv: list[str] | None = None) -> int:
                 ) as temporary_dir,
                 sync_playwright() as playwright,
             ):
-                context = playwright.chromium.launch_persistent_context(
-                    temporary_dir,
-                    headless=args.headless,
-                    no_viewport=True,
-                    args=chromium_launch_args(debug_cdp_port=args.debug_cdp_port),
-                    timeout=30_000,
-                )
+                context = launch_chromium_context(playwright, Path(temporary_dir), args)
                 page = context.pages[0] if context.pages else context.new_page()
                 maximize_browser_window(context, page, headless=args.headless)
                 try:

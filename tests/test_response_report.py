@@ -51,6 +51,7 @@ class ResponseReportTests(unittest.TestCase):
 
         self.assertIn("autoFilter", table_xml)
         self.assertIn("Статус", table_xml)
+        self.assertIn("Лексическая оценка, %", table_xml)
         self.assertIn("Успешно отправлен", strings_xml)
         self.assertIn("Требуется участие кандидата", strings_xml)
         self.assertIn("Сообщение HH после отклика", strings_xml)

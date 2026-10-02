@@ -6,11 +6,128 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from hh_raiser.config import read_file_config, resolve_runtime_settings
+from hh_raiser.config import (
+    DEFAULT_HEADLESS_VIEWPORT_HEIGHT,
+    DEFAULT_HEADLESS_VIEWPORT_WIDTH,
+    DEFAULT_MATCHING_PROMPT,
+    read_file_config,
+    resolve_runtime_settings,
+)
 from hh_raiser.domain.search_filters import ExperienceLevel, SearchField
 
 
 class ConfigTests(unittest.TestCase):
+    def test_headless_viewport_defaults_to_desktop_size(self) -> None:
+        settings = resolve_runtime_settings(
+            argparse.Namespace(
+                config_file=Path("missing.ini"),
+                resume_title="Разработчик",
+                search_query=None,
+                full_activity=False,
+            )
+        )
+        self.assertEqual(settings.headless_viewport_width, DEFAULT_HEADLESS_VIEWPORT_WIDTH)
+        self.assertEqual(settings.headless_viewport_height, DEFAULT_HEADLESS_VIEWPORT_HEIGHT)
+
+    def test_headless_viewport_can_be_set_in_ini(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Разработчик\n"
+                "[browser]\nviewport_width = 1440\nviewport_height = 900\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(
+            (settings.headless_viewport_width, settings.headless_viewport_height), (1440, 900)
+        )
+
+    def test_headless_viewport_rejects_compact_width(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Разработчик\n[browser]\nviewport_width = 800\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "browser.viewport_width"):
+                resolve_runtime_settings(
+                    argparse.Namespace(
+                        config_file=path,
+                        resume_title=None,
+                        search_query=None,
+                        full_activity=False,
+                    )
+                )
+
+    def test_multiline_matching_prompt_and_model_are_configurable(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n"
+                "[matching]\nmodel = deepseek/deepseek-v4.1-flash\n"
+                "prompt =\n    Сравни главные задачи.\n    Ответь JSON.\n"
+                "api_url = https://polza.ai/api/v1\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(settings.matching_prompt, "Сравни главные задачи.\nОтветь JSON.")
+        self.assertEqual(settings.matching_model, "deepseek/deepseek-v4.1-flash")
+        self.assertEqual(settings.matching_api_url, "https://polza.ai/api/v1")
+
+    def test_missing_prompt_uses_packaged_default(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n[matching]\n",
+                encoding="utf-8",
+            )
+            settings = resolve_runtime_settings(
+                argparse.Namespace(
+                    config_file=path,
+                    resume_title=None,
+                    search_query=None,
+                    full_activity=False,
+                )
+            )
+        self.assertEqual(settings.matching_prompt, DEFAULT_MATCHING_PROMPT)
+
+    def test_explicit_empty_matching_prompt_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "hh-config.ini"
+            path.write_text(
+                "[resume]\ntitle = Data Engineer\n[matching]\nprompt =\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "matching.prompt"):
+                resolve_runtime_settings(
+                    argparse.Namespace(
+                        config_file=path,
+                        resume_title=None,
+                        search_query=None,
+                        full_activity=False,
+                    )
+                )
+
+    def test_example_configuration_remains_parseable(self) -> None:
+        example = Path(__file__).parents[1] / "hh-config.example.ini"
+        config = read_file_config(example)
+        self.assertEqual(config.matching_model, "deepseek/deepseek-v4.1-flash")
+        self.assertIsNone(config.matching_prompt)
+
     def test_reads_resume_and_multiple_queries_from_ini(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
@@ -24,7 +141,7 @@ class ConfigTests(unittest.TestCase):
                 "search_fields =\n    name\n"
                 "experience =\n    between1And3\n    between3And6\n"
                 "areas =\n    Москва\n    Санкт-Петербург\n"
-                "[matching]\nenabled = false\nthreshold = 67\n"
+                "[matching]\nenabled = false\nmodel = deepseek/deepseek-v4.1-flash\n"
                 "[responses]\nenabled = true\ndaily_limit = 25\n",
                 encoding="utf-8",
             )
@@ -36,7 +153,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.activity_interval_seconds, 600)
         self.assertEqual(config.search_pages_per_cycle, 30)
         self.assertFalse(config.vacancy_matching)
-        self.assertEqual(config.match_threshold, 67)
+        self.assertEqual(config.matching_model, "deepseek/deepseek-v4.1-flash")
         self.assertTrue(config.auto_respond)
         self.assertEqual(config.daily_response_limit, 25)
         self.assertEqual(config.search_filters.excluded_words, ("senior", "аналитик"))

@@ -50,7 +50,7 @@ class IniConfigStoreTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ConfigEditError, "не разрешена"):
                 store.prepare_change("password", "secret")
-            with self.assertRaisesRegex(ConfigEditError, "от 0 до 100"):
+            with self.assertRaisesRegex(ConfigEditError, "не разрешена"):
                 store.prepare_change("match_threshold", "101")
 
     def test_detects_concurrent_change_before_applying(self) -> None:

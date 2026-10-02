@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -8,13 +9,14 @@ from hh_raiser.activities.resume_review import review_resume
 from hh_raiser.activities.search_page_viewer import view_search_page
 from hh_raiser.activities.vacancy_responder import respond_to_vacancy
 from hh_raiser.activities.vacancy_viewer import view_vacancies
+from hh_raiser.application.polza_vacancy_matcher import VERDICT_LABELS, PolzaVacancyMatcher
 from hh_raiser.application.response_history import record_terminal_response
 from hh_raiser.application.vacancy_traversal import VacancyGroup, VacancyTraversal
-from hh_raiser.domain.matching import VacancyCompatibilityMatcher
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver
 from hh_raiser.infrastructure.hh.resume_reader import read_resume_text
+from hh_raiser.infrastructure.polza_vacancy_client import PolzaVacancyClient
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory, vacancy_id_from_url
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
@@ -69,11 +71,23 @@ def run_vacancy_page_group(
         )
 
     matcher = None
-    if policy.vacancy_matching:
-        matcher = VacancyCompatibilityMatcher(
+    if policy.vacancy_matching and resume_text:
+        source = PolzaVacancyClient(
+            api_key=(
+                os.environ.get("HHRAISER_MATCHING_API_KEY")
+                or os.environ.get("POLZA_MATCHING_TEST_API_KEY", "")
+            ),
+            model=policy.matching_model,
+            api_url=policy.matching_api_url,
+        )
+        matcher = PolzaVacancyMatcher(
+            history=history,
+            source=source,
             resume_title=resume_title,
             resume_text=resume_text,
-            threshold=policy.match_threshold,
+            prompt=policy.matching_prompt,
+            model=policy.matching_model,
+            auto_respond=policy.auto_respond,
         )
 
     LOGGER.info(
@@ -98,6 +112,14 @@ def run_vacancy_page_group(
     for position, url in enumerate(group.urls, start=1):
         vacancy_id = vacancy_id_from_url(url)
         known_status = history.response_status(url)
+        model_cached = matcher is not None and matcher.already_evaluated(url)
+        response_pending = (
+            policy.auto_respond
+            and matcher is not None
+            and model_cached
+            and matcher.response_pending(url)
+        )
+        limit_reached_before_view = _daily_limit_reached(policy, history)
         LOGGER.info(
             "Вакансия %s из %s определена: ID %s, отклик в БД — %s.",
             position,
@@ -124,9 +146,30 @@ def run_vacancy_page_group(
                     response_status=known_status.value,
                 ),
             )
+        elif model_cached:
+            if response_pending:
+                LOGGER.info(
+                    "Вакансия ID %s уже оценена Polza и ожидает отклика; "
+                    "повторный платный запрос не нужен.",
+                    vacancy_id or "не распознан",
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
+            else:
+                LOGGER.info(
+                    "Вакансия ID %s уже оценена Polza для этого резюме; "
+                    "повторный запрос и отклик пропущены.",
+                    vacancy_id or "не распознан",
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
 
         view_options: dict[str, object] = {
-            "matcher": None if known_status is not None else matcher,
+            "matcher": (
+                None
+                if known_status is not None
+                or limit_reached_before_view
+                or (model_cached and not response_pending)
+                else matcher
+            ),
             "view_below_threshold": True,
             "display_index": position,
             "display_total": len(group.urls),
@@ -147,16 +190,20 @@ def run_vacancy_page_group(
                 "search_query": group.query,
                 "search_page": group.page,
                 "group_index": group.group_index,
+                "group_count": group.group_count,
+                "group_size": len(group.urls),
+                "vacancy_url": outcome.url,
+                "model_cached": model_cached,
             },
         )
         results.append(result)
-        if result.status is ActivityStatus.SUCCESS:
+        view_result_index = len(results) - 1
+        if result.status is ActivityStatus.SUCCESS and not limit_reached_before_view:
             history.mark_viewed(outcome.url)
-            if result.metadata.get("match_evaluated") is True:
-                score = result.metadata.get("match_score")
-                accepted = result.metadata.get("match_accepted")
-                if isinstance(score, int) and isinstance(accepted, bool):
-                    history.mark_evaluated(outcome.url, score=score, accepted=accepted)
+
+        if not policy.auto_respond:
+            _mark_response_skip(results, view_result_index, "auto_disabled")
+            continue
 
         if known_status is not None:
             LOGGER.info(
@@ -169,65 +216,66 @@ def run_vacancy_page_group(
                     response_status=known_status.value,
                 ),
             )
+            _mark_response_skip(results, view_result_index, "response_in_history")
             continue
 
-        match_accepted = (
-            not policy.vacancy_matching or result.metadata.get("match_accepted") is True
-        )
-        if result.status is not ActivityStatus.SUCCESS:
-            LOGGER.info(
-                "Отклик на вакансию ID %s не выполняется: страница не распознана полностью.",
-                vacancy_id or "не распознан",
-                extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
-            )
-            continue
-        if not match_accepted:
-            match_score = result.metadata.get("match_score")
-            if match_score is None:
-                LOGGER.info(
-                    "Отклик на вакансию ID %s не выполняется: "
-                    "текст резюме недоступен для сопоставления.",
-                    vacancy_id or "не распознан",
-                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
-                )
-                continue
-            LOGGER.info(
-                "Отклик на вакансию ID %s не выполняется: соответствие %s%% ниже порога %s%%.",
-                vacancy_id or "не распознан",
-                match_score,
-                policy.match_threshold,
-                extra=event_data(
-                    LogEvent.VACANCY_MATCH,
-                    vacancy_id=vacancy_id,
-                    match_score=result.metadata.get("match_score"),
-                    match_threshold=policy.match_threshold,
-                ),
-            )
-            continue
-        if not policy.auto_respond:
-            LOGGER.info(
-                "Отклик на вакансию ID %s отключён настройкой responses.enabled.",
-                vacancy_id or "не распознан",
-                extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
-            )
-            continue
-
-        daily_limit_reached = (
-            policy.daily_response_limit > 0
-            and history.sent_response_count_today() >= policy.daily_response_limit
-        )
-        if daily_limit_reached:
+        if limit_reached_before_view:
             if not daily_limit_reported:
                 daily_limit_reported = True
                 LOGGER.info(
                     "Достигнут дневной лимит успешных откликов: %s. "
-                    "Просмотр вакансий продолжается.",
+                    "Вакансии просматриваются без платной оценки и отклика.",
                     policy.daily_response_limit,
                     extra=event_data(
                         LogEvent.SYSTEM,
                         daily_response_limit=policy.daily_response_limit,
                     ),
                 )
+            _mark_response_skip(results, view_result_index, "daily_limit")
+            continue
+
+        if model_cached and not response_pending:
+            _mark_response_skip(results, view_result_index, "model_cached")
+            continue
+
+        match_accepted = result.metadata.get("match_accepted") is True
+        if result.status is not ActivityStatus.SUCCESS:
+            LOGGER.info(
+                "Отклик на вакансию ID %s не выполняется: страница не распознана полностью.",
+                vacancy_id or "не распознан",
+                extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
+            )
+            _mark_response_skip(results, view_result_index, "view_incomplete")
+            continue
+        if not match_accepted:
+            LOGGER.info(
+                "Отклик на вакансию ID %s не выполняется: оценка Polza — %s.",
+                vacancy_id or "не распознан",
+                VERDICT_LABELS.get(
+                    str(result.metadata.get("semantic_verdict")), "оценка недоступна"
+                ),
+                extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+            )
+            verdict = str(result.metadata.get("semantic_verdict") or "")
+            _mark_response_skip(
+                results,
+                view_result_index,
+                verdict if verdict in {"unfit", "unsure"} else "model_unavailable",
+            )
+            continue
+        if _daily_limit_reached(policy, history):
+            if not daily_limit_reported:
+                daily_limit_reported = True
+                LOGGER.info(
+                    "Достигнут дневной лимит успешных откликов: %s. "
+                    "Подходящая вакансия сохранена для отклика после снятия лимита.",
+                    policy.daily_response_limit,
+                    extra=event_data(
+                        LogEvent.SYSTEM,
+                        daily_response_limit=policy.daily_response_limit,
+                    ),
+                )
+            _mark_response_skip(results, view_result_index, "daily_limit")
             continue
 
         response_result = respond_to_vacancy(
@@ -265,6 +313,22 @@ def run_vacancy_page_group(
         results,
         captcha_guard=captcha_guard,
         stop_requested=stop_requested,
+    )
+
+
+def _mark_response_skip(results: list[ActivityResult], index: int, reason: str) -> None:
+    view_result = results[index]
+    results[index] = replace(
+        view_result,
+        metadata={**view_result.metadata, "response_skip_reason": reason},
+    )
+
+
+def _daily_limit_reached(policy: ActivityPolicy, history: VacancyHistory) -> bool:
+    return (
+        policy.auto_respond
+        and policy.daily_response_limit > 0
+        and history.sent_response_count_today() >= policy.daily_response_limit
     )
 
 
@@ -359,12 +423,12 @@ def _finish_search_cycle(
     traversal: VacancyTraversal,
     history: VacancyHistory,
 ) -> None:
-    """Закончить полный обход и начать следующий с новым поколением истории."""
+    """Закончить полный обход и разрешить повторный просмотр в следующем цикле."""
 
     generation = history.advance_generation()
     LOGGER.info(
         "Все поисковые запросы и их страницы пройдены; начинается обход № %s "
-        "с новым поколением истории № %s.",
+        "(цикл просмотра вакансий № %s).",
         traversal.cycle,
         generation,
         extra=event_data(

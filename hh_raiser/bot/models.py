@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -56,6 +56,11 @@ class InstanceStatistics:
     viewed_vacancies: int
     total_views: int
     evaluated: int
-    average_match_score: float | None
     responses_by_status: Mapping[str, int]
     next_raise_at: datetime | None
+    today_sent: int = 0
+    pending_responses: int = 0
+    daily_limit: int | None = None
+    responses_enabled: bool | None = None
+    matching_mode: str | None = None
+    semantic_verdicts: Mapping[str, int] = field(default_factory=dict)

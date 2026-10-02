@@ -8,12 +8,14 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from hh_raiser.bot.config import BotConfigError, load_bot_settings
 from hh_raiser.cli import build_parser as build_worker_parser
 from hh_raiser.config import resolve_runtime_settings
 from hh_raiser.env_file import EnvFileError, load_env_file
+from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 
 MAIN_SERVICE = "hhraiser@main.service"
 BOT_SERVICE = "hhraiser-bot.service"
@@ -50,7 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     logs = subcommands.add_parser("logs", help="Показать последние записи журналов systemd.")
     logs.add_argument("--lines", type=_positive_lines, default=100)
     subcommands.add_parser("update", help="Обновить код из Git и синхронизировать зависимости.")
+    responses = subcommands.add_parser(
+        "responses", help="Проверить число подтверждённых откликов за московскую дату."
+    )
+    responses.add_argument("--date", type=date.fromisoformat, required=True)
+    responses.add_argument("--target", type=_non_negative_target, required=True)
     return parser
+
+
+def _non_negative_target(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("Цель не может быть отрицательной.")
+    return number
 
 
 def _positive_lines(value: str) -> int:
@@ -79,7 +93,12 @@ def validate_setup(layout: ProjectLayout, *, environment: dict[str, str] | None 
         ["--config-file", str(layout.config_file), "--full-activity"]
     )
     try:
-        resolve_runtime_settings(worker_args)
+        settings = resolve_runtime_settings(worker_args)
+        if settings.vacancy_matching and not (
+            source.get("HHRAISER_MATCHING_API_KEY")
+            or source.get("POLZA_MATCHING_TEST_API_KEY")
+        ):
+            raise SetupError("Не заполнен HHRAISER_MATCHING_API_KEY в .env")
         load_bot_settings(layout.env_file, environment=source)
     except (BotConfigError, ValueError) as error:
         raise SetupError(str(error)) from error
@@ -116,6 +135,24 @@ def main(argv: list[str] | None = None) -> int:
     layout = ProjectLayout(args.project_dir.expanduser().resolve())
     if not (layout.root / "pyproject.toml").is_file():
         parser.error(f"Каталог проекта не найден: {layout.root}")
+    if args.command == "responses":
+        history_path = layout.root / "state" / "main" / "vacancy-history.sqlite3"
+        if not history_path.is_file():
+            print(f"История откликов не найдена: {history_path}", file=sys.stderr)
+            return 2
+        summary = VacancyHistory(history_path).response_summary_on(args.date)
+        print(
+            f"{summary.day.isoformat()} (Москва): подтверждено новых откликов — {summary.sent}; "
+            f"цель — {args.target}; "
+            f"{'выполнена' if summary.meets_target(args.target) else 'не выполнена'}."
+        )
+        print(
+            f"Отдельно: уже отправлены ранее — {summary.already_sent}; "
+            f"требуют ручного действия — {summary.manual_required}; "
+            f"неизвестный исход — {summary.unknown}; "
+            f"недоступны — {summary.unavailable}; ошибки — {summary.error}."
+        )
+        return 0 if summary.meets_target(args.target) else 1
     if args.command in {"setup", "reconfigure"}:
         result = _require_valid_setup(layout)
         if result == 0:

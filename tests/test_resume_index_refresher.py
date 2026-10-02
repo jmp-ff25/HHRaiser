@@ -11,6 +11,7 @@ from hh_raiser.activities.resume_index_refresher import (
     _edit_button_state,
     _expand_experience_if_collapsed,
     _fill_stable_experience_description,
+    _open_resume_experience_controls,
     _profile_resume_url,
     _read_saved_experience_description,
     _submit_resume_and_wait,
@@ -162,6 +163,43 @@ class ResumeIndexRefresherTests(unittest.TestCase):
             "Интерфейс не подтвердил этап «ожидание кнопок редактирования опыта»; "
             "сохранение автоматически не повторяется.",
         )
+
+    def test_discovery_timeout_reports_exact_phase_before_editing(self) -> None:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        class Cards:
+            @property
+            def first(self):
+                return self
+
+            def wait_for(self, *, state, timeout):
+                raise PlaywrightTimeoutError("profile cards unavailable")
+
+        class Page:
+            url = "https://hh.ru/applicant/profile/me"
+
+            def goto(self, url, *, wait_until):
+                return None
+
+            def locator(self, selector):
+                return Cards()
+
+        with (
+            patch(
+                "hh_raiser.activities.resume_index_refresher.resolve_captcha",
+                return_value=False,
+            ),
+            patch("hh_raiser.activities.resume_index_refresher.dismiss_hh_pro_modal"),
+            self.assertRaises(PlaywrightTimeoutError) as raised,
+        ):
+            _open_resume_experience_controls(
+                Page(),
+                resume_title="Python-разработчик",
+                captcha_guard=None,
+                stop_requested=None,
+            )
+        self.assertEqual(raised.exception.phase, "ожидание карточки резюме в профиле")
+        self.assertEqual(raised.exception.page_kind, "профиль")
 
     def test_edit_button_state_reports_dom_and_visible_counts(self) -> None:
         class Locator:
