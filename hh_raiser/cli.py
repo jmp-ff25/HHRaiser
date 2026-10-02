@@ -55,6 +55,24 @@ class BrowserClosedDuringWait(RuntimeError):
     """Сигнал основному циклу: браузер закрыт и разрешён явный перезапуск."""
 
 
+_RESPONSE_SKIP_LABELS = (
+    ("unfit", "модель сочла неподходящими"),
+    ("unsure", "модель не уверена"),
+    ("model_unavailable", "оценка модели недоступна"),
+    ("model_cached", "уже оценены моделью ранее"),
+    ("response_in_history", "результат отклика уже есть в БД"),
+    ("daily_limit", "достигнут дневной лимит"),
+    ("auto_disabled", "автоотклики выключены"),
+    ("view_incomplete", "страница не распознана полностью"),
+)
+_OTHER_RESPONSE_LABELS = (
+    ("already_sent", "HH нашёл прежний отклик"),
+    ("unavailable", "кнопка отклика недоступна"),
+    ("unknown", "исход отклика неясен"),
+    ("error", "ошибка отклика"),
+)
+
+
 @contextmanager
 def graceful_interrupt() -> Iterator[threading.Event]:
     """Turn terminal and service stop signals into a cooperative shutdown request."""
@@ -89,7 +107,12 @@ def resume_wait_delay(
     return delay if delay > 0 else poll_seconds
 
 
-def log_activity_results(results: list[ActivityResult]) -> None:
+def log_activity_results(
+    results: list[ActivityResult],
+    *,
+    today_sent: int | None = None,
+    daily_response_limit: int = 0,
+) -> None:
     """Вывести компактные сводки вместо одинаковой строки для каждой вакансии."""
     search_results = [result for result in results if result.action == ActivityKind.REVIEW_SEARCH]
     vacancy_results = [result for result in results if result.action == ActivityKind.VIEW_VACANCY]
@@ -120,21 +143,6 @@ def log_activity_results(results: list[ActivityResult]) -> None:
                     result.detail,
                     extra=event_data(LogEvent.RESPONSE_MANUAL),
                 )
-        response_counts = Counter(
-            str(result.metadata.get("response_status") or "unknown") for result in response_results
-        )
-        LOGGER.info(
-            "Итоги откликов: успешно — %s; требуется участие кандидата — %s; "
-            "уже отправлено — %s; недоступно — %s; неизвестный результат — %s; ошибки — %s.",
-            response_counts["sent"],
-            response_counts["manual_required"],
-            response_counts["already_sent"],
-            response_counts["unavailable"],
-            response_counts["unknown"],
-            response_counts["error"],
-            extra=event_data(LogEvent.REPORT, report_kind="responses"),
-        )
-
     if search_results:
         search_counts = Counter(result.status for result in search_results)
         LOGGER.info(
@@ -149,27 +157,74 @@ def log_activity_results(results: list[ActivityResult]) -> None:
 
     if not vacancy_results:
         return
-    if len(vacancy_results) == 1 and vacancy_results[0].status == ActivityStatus.SKIPPED:
-        result = vacancy_results[0]
-        LOGGER.info(
-            "Активность %s: %s — %s",
-            result.action,
-            result.status,
-            result.detail,
-            extra=event_data(LogEvent.VACANCY_VIEW),
-        )
-        return
-
-    counts = Counter(result.status for result in vacancy_results)
-    LOGGER.info(
-        "Итоги просмотра вакансий: успешно — %s; неизвестный результат — %s; "
-        "ошибки — %s; пропущено — %s.",
-        counts[ActivityStatus.SUCCESS],
-        counts[ActivityStatus.UNKNOWN],
-        counts[ActivityStatus.ERROR],
-        counts[ActivityStatus.SKIPPED],
-        extra=event_data(LogEvent.REPORT, report_kind="vacancy_views"),
+    first = vacancy_results[0]
+    group_index = first.metadata.get("group_index") or 1
+    group_count = first.metadata.get("group_count") or 1
+    group_size = first.metadata.get("group_size") or len(vacancy_results)
+    view_counts = Counter(result.status for result in vacancy_results)
+    response_counts = Counter(
+        str(result.metadata.get("response_status") or "unknown") for result in response_results
     )
+    skip_counts = Counter(
+        str(result.metadata["response_skip_reason"])
+        for result in vacancy_results
+        if result.metadata.get("response_skip_reason")
+    )
+    unclassified = len(vacancy_results) - len(response_results) - sum(skip_counts.values())
+    if unclassified > 0:
+        skip_counts["unclassified"] = unclassified
+    skipped_response = sum(skip_counts.values())
+    viewed = view_counts[ActivityStatus.SUCCESS]
+    LOGGER.info(
+        "Группа %s из %s: обработано вакансий — %s из %s; просмотрено — %s; "
+        "просмотр не завершён — %s.",
+        group_index,
+        group_count,
+        len(vacancy_results),
+        group_size,
+        viewed,
+        len(vacancy_results) - viewed,
+        extra=event_data(LogEvent.REPORT, report_kind="vacancy_group"),
+    )
+    outcome_parts = [
+        f"новый отклик подтверждён HH — {response_counts['sent']}",
+        f"нужна помощь кандидата (отклик не отправлен) — {response_counts['manual_required']}",
+    ]
+    outcome_parts.extend(
+        f"{label} — {response_counts[status]}"
+        for status, label in _OTHER_RESPONSE_LABELS
+        if response_counts[status]
+    )
+    outcome_parts.append(f"без проверки отклика — {skipped_response}")
+    LOGGER.info(
+        "Итог группы (%s вакансий): %s.",
+        len(vacancy_results),
+        "; ".join(outcome_parts),
+        extra=event_data(LogEvent.REPORT, report_kind="responses"),
+    )
+    if skipped_response:
+        skip_parts = [
+            f"{label} — {skip_counts[reason]}"
+            for reason, label in _RESPONSE_SKIP_LABELS
+            if skip_counts[reason]
+        ]
+        if skip_counts["unclassified"]:
+            skip_parts.append(f"причина не указана — {skip_counts['unclassified']}")
+        LOGGER.info(
+            "Без проверки отклика: %s.",
+            "; ".join(skip_parts),
+            extra=event_data(LogEvent.REPORT, report_kind="response_skips"),
+        )
+    if today_sent is not None:
+        limit_text = (
+            f"из {daily_response_limit}" if daily_response_limit > 0 else "без дневного лимита"
+        )
+        LOGGER.info(
+            "Сегодня (МСК): подтверждено новых откликов — %s %s.",
+            today_sent,
+            limit_text,
+            extra=event_data(LogEvent.REPORT, report_kind="daily_responses"),
+        )
     for result in vacancy_results:
         if result.status in {ActivityStatus.ERROR, ActivityStatus.UNKNOWN}:
             LOGGER.warning(
@@ -585,7 +640,11 @@ def run_browser_context(
                 next_activity_at is None or datetime.now(MOSCOW) >= next_activity_at
             ):
                 results = orchestrator.run(page)
-                log_activity_results(results)
+                log_activity_results(
+                    results,
+                    today_sent=orchestrator.history.sent_response_count_today(),
+                    daily_response_limit=orchestrator.policy.daily_response_limit,
+                )
                 next_activity_at = datetime.now(MOSCOW) + timedelta(
                     seconds=args.activity_interval_seconds
                 )
@@ -682,9 +741,13 @@ def main(argv: list[str] | None = None) -> int:
     args.daily_response_limit = settings.daily_response_limit
     args.captcha_answer_source = settings.captcha_answer_source
     args.search_filters = settings.search_filters
-    if args.full_activity and args.vacancy_matching and not (
-        os.environ.get("HHRAISER_MATCHING_API_KEY")
-        or os.environ.get("POLZA_MATCHING_TEST_API_KEY")
+    if (
+        args.full_activity
+        and args.vacancy_matching
+        and not (
+            os.environ.get("HHRAISER_MATCHING_API_KEY")
+            or os.environ.get("POLZA_MATCHING_TEST_API_KEY")
+        )
     ):
         parser.error("Для оценки вакансий задайте HHRAISER_MATCHING_API_KEY в .env")
     if args.full_activity and args.search_filters.areas:

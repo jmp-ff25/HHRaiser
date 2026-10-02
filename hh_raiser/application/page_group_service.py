@@ -167,18 +167,19 @@ def run_vacancy_page_group(
                 "search_query": group.query,
                 "search_page": group.page,
                 "group_index": group.group_index,
+                "group_count": group.group_count,
+                "group_size": len(group.urls),
                 "vacancy_url": outcome.url,
                 "model_cached": model_cached,
             },
         )
         results.append(result)
+        view_result_index = len(results) - 1
         if result.status is ActivityStatus.SUCCESS:
             history.mark_viewed(outcome.url)
 
         if not policy.auto_respond:
-            continue
-
-        if model_cached:
+            _mark_response_skip(results, view_result_index, "auto_disabled")
             continue
 
         if known_status is not None:
@@ -192,6 +193,11 @@ def run_vacancy_page_group(
                     response_status=known_status.value,
                 ),
             )
+            _mark_response_skip(results, view_result_index, "response_in_history")
+            continue
+
+        if model_cached:
+            _mark_response_skip(results, view_result_index, "model_cached")
             continue
 
         match_accepted = result.metadata.get("match_accepted") is True
@@ -201,6 +207,7 @@ def run_vacancy_page_group(
                 vacancy_id or "не распознан",
                 extra=event_data(LogEvent.RESPONSE_MANUAL, vacancy_id=vacancy_id),
             )
+            _mark_response_skip(results, view_result_index, "view_incomplete")
             continue
         if not match_accepted:
             LOGGER.info(
@@ -210,6 +217,12 @@ def run_vacancy_page_group(
                     str(result.metadata.get("semantic_verdict")), "оценка недоступна"
                 ),
                 extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+            )
+            verdict = str(result.metadata.get("semantic_verdict") or "")
+            _mark_response_skip(
+                results,
+                view_result_index,
+                verdict if verdict in {"unfit", "unsure"} else "model_unavailable",
             )
             continue
         daily_limit_reached = (
@@ -228,6 +241,7 @@ def run_vacancy_page_group(
                         daily_response_limit=policy.daily_response_limit,
                     ),
                 )
+            _mark_response_skip(results, view_result_index, "daily_limit")
             continue
 
         response_result = respond_to_vacancy(
@@ -265,6 +279,14 @@ def run_vacancy_page_group(
         results,
         captcha_guard=captcha_guard,
         stop_requested=stop_requested,
+    )
+
+
+def _mark_response_skip(results: list[ActivityResult], index: int, reason: str) -> None:
+    view_result = results[index]
+    results[index] = replace(
+        view_result,
+        metadata={**view_result.metadata, "response_skip_reason": reason},
     )
 
 

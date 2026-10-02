@@ -102,7 +102,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.search_query, ["Первый запрос", "Второй запрос"])
 
-    def test_vacancy_results_are_logged_as_one_summary(self) -> None:
+    def test_group_summary_reconciles_all_viewed_vacancies_and_daily_total(self) -> None:
         stream = StringIO()
         configure_logging(stream=stream, use_color=False)
         results = [
@@ -110,15 +110,36 @@ class CliTests(unittest.TestCase):
                 action=ActivityKind.VIEW_VACANCY,
                 status=ActivityStatus.SUCCESS,
                 detail="Страница вакансии содержательно просмотрена.",
+                metadata={
+                    "group_index": 2,
+                    "group_count": 10,
+                    "group_size": 5,
+                    **({"response_skip_reason": "unfit"} if index >= 3 else {}),
+                },
             )
-            for _ in range(10)
+            for index in range(5)
         ]
+        results.extend(
+            ActivityResult(
+                action=ActivityKind.RESPOND_VACANCY,
+                status=ActivityStatus.SKIPPED,
+                detail="Нужна анкета",
+                metadata={"response_status": "manual_required"},
+            )
+            for _ in range(3)
+        )
 
-        log_activity_results(results)
+        log_activity_results(results, today_sent=7, daily_response_limit=15)
 
         output = stream.getvalue()
-        self.assertEqual(output.count("Итоги просмотра вакансий"), 1)
-        self.assertIn("успешно — 10", output)
+        self.assertIn("Группа 2 из 10: обработано вакансий — 5 из 5; просмотрено — 5", output)
+        self.assertIn("Итог группы (5 вакансий): новый отклик подтверждён HH — 0", output)
+        self.assertIn("нужна помощь кандидата (отклик не отправлен) — 3", output)
+        self.assertIn("без проверки отклика — 2", output)
+        self.assertIn("Без проверки отклика: модель сочла неподходящими — 2", output)
+        self.assertIn("Сегодня (МСК): подтверждено новых откликов — 7 из 15", output)
+        self.assertNotIn("кнопка отклика недоступна", output)
+        self.assertNotIn("причина не указана", output)
         self.assertNotIn("Страница вакансии содержательно просмотрена", output)
 
     def test_command_line_credentials_are_accepted(self) -> None:

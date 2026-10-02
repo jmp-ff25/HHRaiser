@@ -83,9 +83,13 @@ class PageGroupServiceTests(unittest.TestCase):
                     return_value=result(ActivityKind.REVIEW_RESUME),
                 ),
             ):
-                run_vacancy_page_group(object(), policy, traversal, history, "Python-разработчик")
+                results = run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python-разработчик"
+                )
             respond.assert_not_called()
             self.assertEqual(history.sent_response_count_today(), 0)
+            viewed = next(item for item in results if item.action == ActivityKind.VIEW_VACANCY)
+            self.assertEqual(viewed.metadata["response_skip_reason"], "model_cached")
 
     def test_view_only_mode_never_enters_response_checks(self) -> None:
         with TemporaryDirectory() as directory:
@@ -129,9 +133,13 @@ class PageGroupServiceTests(unittest.TestCase):
                 ),
                 self.assertLogs("hh_resume_raiser", level="INFO") as captured,
             ):
-                run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
+                results = run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python backend"
+                )
             respond.assert_not_called()
             self.assertNotIn("Отклик на вакансию", "\n".join(captured.output))
+            viewed = next(item for item in results if item.action == ActivityKind.VIEW_VACANCY)
+            self.assertEqual(viewed.metadata["response_skip_reason"], "auto_disabled")
 
     def test_fullstack_vacancy_is_viewed_but_never_auto_responded(self) -> None:
         with TemporaryDirectory() as directory:
@@ -222,9 +230,16 @@ class PageGroupServiceTests(unittest.TestCase):
                         return_value=result(ActivityKind.REVIEW_RESUME),
                     ),
                 ):
-                    run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
+                    results = run_vacancy_page_group(
+                        object(), policy, traversal, history, "Python backend"
+                    )
                 self.assertEqual(respond.called, should_respond)
                 self.assertEqual(history.sent_response_count_today(), int(should_respond))
+                viewed = next(item for item in results if item.action == ActivityKind.VIEW_VACANCY)
+                if should_respond:
+                    self.assertNotIn("response_skip_reason", viewed.metadata)
+                else:
+                    self.assertEqual(viewed.metadata["response_skip_reason"], "unsure")
 
     def test_groups_every_vacancy_even_when_history_already_has_views(self) -> None:
         with TemporaryDirectory() as directory:
@@ -421,7 +436,7 @@ class PageGroupServiceTests(unittest.TestCase):
                     return_value=result(ActivityKind.REVIEW_RESUME),
                 ),
             ):
-                run_vacancy_page_group(
+                results = run_vacancy_page_group(
                     object(),
                     policy,
                     traversal,
@@ -432,6 +447,13 @@ class PageGroupServiceTests(unittest.TestCase):
             self.assertFalse(matcher_presence[known_url])
             self.assertTrue(matcher_presence[new_url])
             respond.assert_called_once()
+            known_view = next(
+                item
+                for item in results
+                if item.action == ActivityKind.VIEW_VACANCY
+                and item.metadata["vacancy_url"] == known_url
+            )
+            self.assertEqual(known_view.metadata["response_skip_reason"], "response_in_history")
             self.assertEqual(
                 {record.vacancy_id for record in history.response_records()},
                 {"1", "2"},
