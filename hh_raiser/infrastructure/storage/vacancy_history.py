@@ -148,6 +148,7 @@ class VacancyHistory:
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
                     cost_rub REAL,
+                    response_state TEXT NOT NULL DEFAULT 'review_only',
                     PRIMARY KEY (vacancy_id, resume_fingerprint)
                 );
 
@@ -188,6 +189,15 @@ class VacancyHistory:
             if "post_response_modal_text" not in response_columns:
                 connection.execute(
                     "ALTER TABLE vacancy_responses ADD COLUMN post_response_modal_text TEXT"
+                )
+            evaluation_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(vacancy_model_evaluations)")
+            }
+            if "response_state" not in evaluation_columns:
+                connection.execute(
+                    "ALTER TABLE vacancy_model_evaluations "
+                    "ADD COLUMN response_state TEXT NOT NULL DEFAULT 'review_only'"
                 )
 
     @property
@@ -451,6 +461,26 @@ class VacancyHistory:
             cost_rub=float(row[5]) if row[5] is not None else None,
         )
 
+    def pending_model_response(self, url: str, resume_fingerprint: str) -> bool:
+        """A paid fit requested in auto-response mode still needs an HH outcome."""
+
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return False
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT 1 FROM vacancy_model_evaluations AS evaluation
+                WHERE evaluation.vacancy_id = ? AND evaluation.resume_fingerprint = ?
+                  AND evaluation.verdict = 'fit' AND evaluation.response_state = 'pending'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM vacancy_responses AS response
+                      WHERE response.vacancy_id = evaluation.vacancy_id
+                        AND response.status IN ('sent', 'manual_required', 'already_sent', 'unknown')
+                  )""",
+                (vacancy_id, resume_fingerprint),
+            ).fetchone()
+        return row is not None
+
     def record_model_evaluation(
         self,
         url: str,
@@ -458,6 +488,7 @@ class VacancyHistory:
         resume_fingerprint: str,
         model: str,
         decision: ModelDecision,
+        pending_response: bool = False,
     ) -> bool:
         """Persist the API result immediately, before browser scrolling can fail."""
         vacancy_id = vacancy_id_from_url(url)
@@ -474,8 +505,8 @@ class VacancyHistory:
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO vacancy_model_evaluations
                 (vacancy_id, resume_fingerprint, evaluated_at, model, verdict, reason,
-                 gaps_json, input_tokens, output_tokens, cost_rub)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 gaps_json, input_tokens, output_tokens, cost_rub, response_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     vacancy_id,
                     resume_fingerprint,
@@ -487,6 +518,7 @@ class VacancyHistory:
                     decision.input_tokens,
                     decision.output_tokens,
                     decision.cost_rub,
+                    "pending" if pending_response and decision.verdict == "fit" else "review_only",
                 ),
             )
         return cursor.rowcount > 0
@@ -560,6 +592,13 @@ class VacancyHistory:
                     record.post_response_modal_text,
                 ),
             )
+            if cursor.rowcount and record.status in TERMINAL_RESPONSE_STATUSES:
+                connection.execute(
+                    """UPDATE vacancy_model_evaluations
+                    SET response_state = 'resolved'
+                    WHERE vacancy_id = ? AND response_state = 'pending'""",
+                    (record.vacancy_id,),
+                )
         return cursor.rowcount > 0
 
     def response_records(self) -> list[VacancyResponseRecord]:

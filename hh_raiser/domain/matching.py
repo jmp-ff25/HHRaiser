@@ -36,8 +36,16 @@ class VacancyDecisionSource(Protocol):
 class ModelEvaluationStore(Protocol):
     def model_evaluation(self, url: str, resume_fingerprint: str) -> ModelDecision | None: ...
 
+    def pending_model_response(self, url: str, resume_fingerprint: str) -> bool: ...
+
     def record_model_evaluation(
-        self, url: str, *, resume_fingerprint: str, model: str, decision: ModelDecision
+        self,
+        url: str,
+        *,
+        resume_fingerprint: str,
+        model: str,
+        decision: ModelDecision,
+        pending_response: bool = False,
     ) -> bool: ...
 
 

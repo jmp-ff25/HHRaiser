@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import (
     ManualResponseReason,
     VacancyResponseRecord,
@@ -47,6 +48,80 @@ class StorageTests(unittest.TestCase):
 
 
 class VacancyHistoryTests(unittest.TestCase):
+    def test_paid_fit_waits_for_response_until_hh_confirms_or_requires_form(self) -> None:
+        for status in (
+            VacancyResponseStatus.SENT,
+            VacancyResponseStatus.ALREADY_SENT,
+            VacancyResponseStatus.MANUAL_REQUIRED,
+        ):
+            with self.subTest(status=status), TemporaryDirectory() as directory:
+                history = VacancyHistory(Path(directory) / "history.sqlite3")
+                url = "https://hh.ru/vacancy/123"
+                fingerprint = "selected-resume"
+                history.record_model_evaluation(
+                    url,
+                    resume_fingerprint=fingerprint,
+                    model="deepseek",
+                    decision=ModelDecision("fit", "Подходит", ()),
+                    pending_response=True,
+                )
+                self.assertTrue(history.pending_model_response(url, fingerprint))
+
+                history.record_response(
+                    VacancyResponseRecord.now(
+                        vacancy_id="123",
+                        status=status,
+                        detail="HH подтвердил результат",
+                        vacancy_title="Python",
+                        company_name="Example",
+                        search_query="Python",
+                        match_score=None,
+                    )
+                )
+
+                self.assertFalse(history.pending_model_response(url, fingerprint))
+                self.assertEqual(history.response_status(url), status)
+                with closing(sqlite3.connect(history.path)) as connection:
+                    row = connection.execute(
+                        "SELECT response_state FROM vacancy_model_evaluations"
+                    ).fetchone()
+                self.assertEqual(row, ("resolved",))
+
+    def test_old_paid_fit_remains_review_only_after_schema_migration(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "history.sqlite3"
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.executescript(
+                    """CREATE TABLE vacancy_model_evaluations (
+                        vacancy_id TEXT NOT NULL,
+                        resume_fingerprint TEXT NOT NULL,
+                        evaluated_at TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        verdict TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        gaps_json TEXT NOT NULL,
+                        input_tokens INTEGER NOT NULL DEFAULT 0,
+                        output_tokens INTEGER NOT NULL DEFAULT 0,
+                        cost_rub REAL,
+                        PRIMARY KEY (vacancy_id, resume_fingerprint)
+                    );
+                    INSERT INTO vacancy_model_evaluations
+                    (vacancy_id, resume_fingerprint, evaluated_at, model, verdict, reason,
+                     gaps_json)
+                    VALUES ('123', 'selected-resume', '2026-10-02T10:00:00+03:00',
+                            'deepseek', 'fit', 'Подходит', '[]');"""
+                )
+
+            history = VacancyHistory(path)
+
+            self.assertEqual(
+                history.model_evaluation("https://hh.ru/vacancy/123", "selected-resume").verdict,
+                "fit",
+            )
+            self.assertFalse(
+                history.pending_model_response("https://hh.ru/vacancy/123", "selected-resume")
+            )
+
     def test_persists_search_page_coverage_and_selection_counters(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")

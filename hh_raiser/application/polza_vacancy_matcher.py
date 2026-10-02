@@ -42,6 +42,7 @@ class PolzaVacancyMatcher:
         resume_text: str,
         prompt: str,
         model: str,
+        auto_respond: bool = False,
     ) -> None:
         self.history = history
         self.source = source
@@ -49,15 +50,23 @@ class PolzaVacancyMatcher:
         self.resume_text = resume_text
         self.prompt = prompt
         self.model = model
+        self.auto_respond = auto_respond
         self.fingerprint = resume_fingerprint(resume_title)
 
     def already_evaluated(self, url: str) -> bool:
         return self.history.model_evaluation(url, self.fingerprint) is not None
 
+    def response_pending(self, url: str) -> bool:
+        return self.history.pending_model_response(url, self.fingerprint)
+
     def evaluate(self, vacancy: VacancyDocument, url: str) -> MatchAssessment:
         cached = self.history.model_evaluation(url, self.fingerprint)
         if cached is not None:
-            return self._assessment(cached, cached=True)
+            return self._assessment(
+                cached,
+                cached=True,
+                response_pending=self.auto_respond and self.response_pending(url),
+            )
         try:
             decision = self.source.evaluate(
                 resume_title=self.resume_title,
@@ -69,7 +78,10 @@ class PolzaVacancyMatcher:
             # A 200 response can be billed even if its JSON was incomplete.
             decision = ModelDecision("unavailable", "Ответ модели неполон", ())
             self.history.record_model_evaluation(
-                url, resume_fingerprint=self.fingerprint, model=self.model, decision=decision
+                url,
+                resume_fingerprint=self.fingerprint,
+                model=self.model,
+                decision=decision,
             )
         except (APIError, OSError, TimeoutError) as error:
             LOGGER.warning(
@@ -81,10 +93,19 @@ class PolzaVacancyMatcher:
             return self._assessment(ModelDecision("unavailable", "Ошибка API Polza", ()))
         else:
             inserted = self.history.record_model_evaluation(
-                url, resume_fingerprint=self.fingerprint, model=self.model, decision=decision
+                url,
+                resume_fingerprint=self.fingerprint,
+                model=self.model,
+                decision=decision,
+                pending_response=self.auto_respond,
             )
             if not inserted:
-                return self._assessment(decision, cached=True)
+                stored = self.history.model_evaluation(url, self.fingerprint)
+                return self._assessment(
+                    stored or decision,
+                    cached=True,
+                    response_pending=self.auto_respond and self.response_pending(url),
+                )
         reason = concise_log_reason(decision.reason)
         LOGGER.info(
             "Polza «%s»: %s — %s",
@@ -98,12 +119,14 @@ class PolzaVacancyMatcher:
                 model=self.model,
             ),
         )
-        return self._assessment(decision)
+        return self._assessment(decision, response_pending=self.auto_respond)
 
     @staticmethod
-    def _assessment(decision: ModelDecision, *, cached: bool = False) -> MatchAssessment:
+    def _assessment(
+        decision: ModelDecision, *, cached: bool = False, response_pending: bool = False
+    ) -> MatchAssessment:
         return MatchAssessment(
-            accepted=decision.verdict == "fit" and not cached,
+            accepted=decision.verdict == "fit" and (not cached or response_pending),
             applied=decision.verdict in {"fit", "unsure", "unfit"},
             semantic_verdict=decision.verdict,
             semantic_reason=decision.reason,
@@ -117,8 +140,6 @@ def concise_log_reason(reason: str, *, limit: int = 280) -> str:
     normalized = " ".join(reason.split())
     if len(normalized) > limit:
         prefix = normalized[:limit]
-        first_words = (
-            prefix if normalized[limit].isspace() else prefix.rsplit(" ", 1)[0] or prefix
-        )
+        first_words = prefix if normalized[limit].isspace() else prefix.rsplit(" ", 1)[0] or prefix
         return first_words.rstrip(".,;:") + "…"
     return normalized if normalized.endswith((".", "!", "?", "…")) else normalized + "."

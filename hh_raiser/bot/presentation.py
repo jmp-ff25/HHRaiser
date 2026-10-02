@@ -63,8 +63,7 @@ def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics)
         if statistics.semantic_verdicts.get(verdict, 0)
     ]
     semantic = (
-        "\nОценки Polza AI по вакансиям:\n"
-        + "\n".join(semantic_lines)
+        "\nОценки Polza AI по вакансиям:\n" + "\n".join(semantic_lines)
         if semantic_lines
         else "\nОценок Polza AI пока нет."
         if statistics.matching_mode == "polza"
@@ -76,6 +75,7 @@ def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics)
         f"Просмотрено уникальных вакансий: <b>{statistics.viewed_vacancies}</b>\n"
         f"Всего содержательных просмотров: <b>{statistics.total_views}</b>\n"
         f"Оценок через Polza AI: <b>{statistics.evaluated}</b>{semantic}\n"
+        f"Подходящих вакансий ожидают отклика: <b>{statistics.pending_responses}</b>\n"
         f"Текущий цикл уникальных просмотров: <b>№ {statistics.generation}</b>\n"
         f"Следующее поднятие резюме: <b>{escape(next_raise)}</b>\n\n"
         f"<b>Подтверждённые отклики сегодня (Москва): "
@@ -107,6 +107,7 @@ def format_periodic_summary(
         f"<b>{escape(instance.name)}</b> — {escape(state)}\n"
         f"Вакансий найдено: {statistics.discovered}; просмотров: {statistics.total_views}; "
         f"подтверждено сегодня: {_today_progress(statistics)}; "
+        f"ожидают отклика: {statistics.pending_responses}; "
         f"отправлено HHRaiser за всё время: {successful}; уже были отправлены: {already_sent}; "
         f"требуют вашего участия: {manual}."
     )

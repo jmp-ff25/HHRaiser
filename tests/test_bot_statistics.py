@@ -35,7 +35,9 @@ class BotStatisticsTests(unittest.TestCase):
                 revisit_after_days=0,
             )
             history.record_model_evaluation(
-                url, resume_fingerprint="resume", model="deepseek/deepseek-v4.1-flash",
+                url,
+                resume_fingerprint="resume",
+                model="deepseek/deepseek-v4.1-flash",
                 decision=ModelDecision("fit", "Совпадают задачи", ()),
             )
             history.mark_viewed(url)
@@ -72,11 +74,49 @@ class BotStatisticsTests(unittest.TestCase):
 
         self.assertEqual(statistics.discovered, 0)
         self.assertEqual(statistics.responses_by_status, {})
+        self.assertEqual(statistics.pending_responses, 0)
+
+    def test_pending_fit_is_counted_separately_from_sent_and_manual_responses(self) -> None:
+        with TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            history = VacancyHistory(state_dir / "vacancy-history.sqlite3")
+            for vacancy_id in ("1", "2", "3"):
+                history.record_model_evaluation(
+                    f"https://hh.ru/vacancy/{vacancy_id}",
+                    resume_fingerprint="resume",
+                    model="deepseek",
+                    decision=ModelDecision("fit", "Подходит", ()),
+                    pending_response=True,
+                )
+            for vacancy_id, status in (
+                ("2", VacancyResponseStatus.SENT),
+                ("3", VacancyResponseStatus.MANUAL_REQUIRED),
+            ):
+                history.record_response(
+                    VacancyResponseRecord.now(
+                        vacancy_id=vacancy_id,
+                        status=status,
+                        detail="HH подтвердил исход",
+                        vacancy_title="Python",
+                        company_name="Example",
+                        search_query="Python",
+                        match_score=None,
+                    )
+                )
+
+            statistics = read_instance_statistics(state_dir)
+
+        self.assertEqual(statistics.pending_responses, 1)
+        self.assertEqual(statistics.responses_by_status["sent"], 1)
+        self.assertEqual(statistics.responses_by_status["manual_required"], 1)
 
     def test_reads_legacy_history_before_worker_migrates_it(self) -> None:
         with TemporaryDirectory() as directory:
             state_dir = Path(directory)
-            with closing(sqlite3.connect(state_dir / "vacancy-history.sqlite3")) as connection, connection:
+            with (
+                closing(sqlite3.connect(state_dir / "vacancy-history.sqlite3")) as connection,
+                connection,
+            ):
                 connection.executescript(
                     """
                     CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -136,6 +176,7 @@ class BotStatisticsTests(unittest.TestCase):
             responses_by_status=Counter({"sent": 1, "already_sent": 5, "manual_required": 1}),
             next_raise_at=None,
             today_sent=1,
+            pending_responses=2,
             daily_limit=15,
             responses_enabled=True,
             matching_mode="polza",
@@ -153,8 +194,10 @@ class BotStatisticsTests(unittest.TestCase):
         self.assertIn("Оценок через Polza AI: <b>5</b>", text)
         self.assertIn("подходит: 2", text)
         self.assertIn("Подтверждённые отклики сегодня (Москва): 1 из 15", text)
+        self.assertIn("Подходящих вакансий ожидают отклика: <b>2</b>", text)
         self.assertIn("отклик уже существовал до обработки HHRaiser: 5", text)
         self.assertIn("подтверждено сегодня: 1 из 15", summary)
+        self.assertIn("ожидают отклика: 2", summary)
         self.assertIn("отправлено HHRaiser за всё время: 1", summary)
         self.assertIn("уже были отправлены: 5", summary)
         self.assertIn("требуют вашего участия: 1", summary)
@@ -179,7 +222,9 @@ class BotStatisticsTests(unittest.TestCase):
             url = "https://hh.ru/vacancy/123"
             history.reserve_unseen(urls=[url], search_query="Python", limit=1, revisit_after_days=0)
             history.record_model_evaluation(
-                url, resume_fingerprint="resume", model="deepseek/deepseek-v4.1-flash",
+                url,
+                resume_fingerprint="resume",
+                model="deepseek/deepseek-v4.1-flash",
                 decision=ModelDecision("fit", "Совпадают задачи", ()),
             )
             history.record_response(

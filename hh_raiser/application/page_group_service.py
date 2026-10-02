@@ -87,6 +87,7 @@ def run_vacancy_page_group(
             resume_text=resume_text,
             prompt=policy.matching_prompt,
             model=policy.matching_model,
+            auto_respond=policy.auto_respond,
         )
 
     LOGGER.info(
@@ -112,6 +113,13 @@ def run_vacancy_page_group(
         vacancy_id = vacancy_id_from_url(url)
         known_status = history.response_status(url)
         model_cached = matcher is not None and matcher.already_evaluated(url)
+        response_pending = (
+            policy.auto_respond
+            and matcher is not None
+            and model_cached
+            and matcher.response_pending(url)
+        )
+        limit_reached_before_view = _daily_limit_reached(policy, history)
         LOGGER.info(
             "Вакансия %s из %s определена: ID %s, отклик в БД — %s.",
             position,
@@ -139,14 +147,29 @@ def run_vacancy_page_group(
                 ),
             )
         elif model_cached:
-            LOGGER.info(
-                "Вакансия ID %s уже оценена Polza для этого резюме; повторный запрос и отклик пропущены.",
-                vacancy_id or "не распознан",
-                extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
-            )
+            if response_pending:
+                LOGGER.info(
+                    "Вакансия ID %s уже оценена Polza и ожидает отклика; "
+                    "повторный платный запрос не нужен.",
+                    vacancy_id or "не распознан",
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
+            else:
+                LOGGER.info(
+                    "Вакансия ID %s уже оценена Polza для этого резюме; "
+                    "повторный запрос и отклик пропущены.",
+                    vacancy_id or "не распознан",
+                    extra=event_data(LogEvent.VACANCY_MATCH, vacancy_id=vacancy_id),
+                )
 
         view_options: dict[str, object] = {
-            "matcher": None if known_status is not None or model_cached else matcher,
+            "matcher": (
+                None
+                if known_status is not None
+                or limit_reached_before_view
+                or (model_cached and not response_pending)
+                else matcher
+            ),
             "view_below_threshold": True,
             "display_index": position,
             "display_total": len(group.urls),
@@ -175,7 +198,7 @@ def run_vacancy_page_group(
         )
         results.append(result)
         view_result_index = len(results) - 1
-        if result.status is ActivityStatus.SUCCESS:
+        if result.status is ActivityStatus.SUCCESS and not limit_reached_before_view:
             history.mark_viewed(outcome.url)
 
         if not policy.auto_respond:
@@ -196,7 +219,22 @@ def run_vacancy_page_group(
             _mark_response_skip(results, view_result_index, "response_in_history")
             continue
 
-        if model_cached:
+        if limit_reached_before_view:
+            if not daily_limit_reported:
+                daily_limit_reported = True
+                LOGGER.info(
+                    "Достигнут дневной лимит успешных откликов: %s. "
+                    "Вакансии просматриваются без платной оценки и отклика.",
+                    policy.daily_response_limit,
+                    extra=event_data(
+                        LogEvent.SYSTEM,
+                        daily_response_limit=policy.daily_response_limit,
+                    ),
+                )
+            _mark_response_skip(results, view_result_index, "daily_limit")
+            continue
+
+        if model_cached and not response_pending:
             _mark_response_skip(results, view_result_index, "model_cached")
             continue
 
@@ -225,16 +263,12 @@ def run_vacancy_page_group(
                 verdict if verdict in {"unfit", "unsure"} else "model_unavailable",
             )
             continue
-        daily_limit_reached = (
-            policy.daily_response_limit > 0
-            and history.sent_response_count_today() >= policy.daily_response_limit
-        )
-        if daily_limit_reached:
+        if _daily_limit_reached(policy, history):
             if not daily_limit_reported:
                 daily_limit_reported = True
                 LOGGER.info(
                     "Достигнут дневной лимит успешных откликов: %s. "
-                    "Просмотр вакансий продолжается.",
+                    "Подходящая вакансия сохранена для отклика после снятия лимита.",
                     policy.daily_response_limit,
                     extra=event_data(
                         LogEvent.SYSTEM,
@@ -287,6 +321,14 @@ def _mark_response_skip(results: list[ActivityResult], index: int, reason: str) 
     results[index] = replace(
         view_result,
         metadata={**view_result.metadata, "response_skip_reason": reason},
+    )
+
+
+def _daily_limit_reached(policy: ActivityPolicy, history: VacancyHistory) -> bool:
+    return (
+        policy.auto_respond
+        and policy.daily_response_limit > 0
+        and history.sent_response_count_today() >= policy.daily_response_limit
     )
 
 

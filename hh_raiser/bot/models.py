@@ -59,6 +59,7 @@ class InstanceStatistics:
     responses_by_status: Mapping[str, int]
     next_raise_at: datetime | None
     today_sent: int = 0
+    pending_responses: int = 0
     daily_limit: int | None = None
     responses_enabled: bool | None = None
     matching_mode: str | None = None

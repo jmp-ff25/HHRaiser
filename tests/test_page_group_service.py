@@ -16,7 +16,7 @@ from hh_raiser.application.polza_vacancy_matcher import resume_fingerprint
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.bot.statistics import read_instance_statistics
 from hh_raiser.domain.action import ActivityKind
-from hh_raiser.domain.matching import ModelDecision
+from hh_raiser.domain.matching import ModelDecision, VacancyDocument
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
@@ -37,6 +37,229 @@ class PageGroupServiceTests(unittest.TestCase):
         key = patch.dict(os.environ, {"HHRAISER_MATCHING_API_KEY": "test-key"})
         key.start()
         self.addCleanup(key.stop)
+
+    def test_daily_limit_skips_paid_analysis_and_view_history(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            history.record_response(
+                VacancyResponseRecord.now(
+                    vacancy_id="999",
+                    status=VacancyResponseStatus.SENT,
+                    detail="HH подтвердил",
+                    vacancy_title="Earlier vacancy",
+                    company_name="Example",
+                    search_query="Python",
+                    match_score=None,
+                )
+            )
+            url = "https://hh.ru/vacancy/123"
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                vacancy_matching=True,
+                auto_respond=True,
+                daily_response_limit=1,
+            )
+
+            def view(_page, _urls, _policy, **options):
+                self.assertIsNone(options["matcher"])
+                return [
+                    VacancyViewOutcome(
+                        url=url,
+                        result=result(ActivityKind.VIEW_VACANCY, vacancy_title="Python backend"),
+                    )
+                ]
+
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.read_resume_text",
+                    return_value="Python backend",
+                ),
+                patch("hh_raiser.application.page_group_service.view_vacancies", side_effect=view),
+                patch("hh_raiser.application.page_group_service.PolzaVacancyClient") as client,
+                patch("hh_raiser.application.page_group_service.respond_to_vacancy") as respond,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                results = run_vacancy_page_group(
+                    object(), policy, traversal, history, "Python-разработчик"
+                )
+
+            client.return_value.evaluate.assert_not_called()
+            respond.assert_not_called()
+            self.assertEqual(history.viewed_count(), 0)
+            self.assertIsNone(
+                history.model_evaluation(url, resume_fingerprint("Python-разработчик"))
+            )
+            viewed = next(item for item in results if item.action == ActivityKind.VIEW_VACANCY)
+            self.assertEqual(viewed.metadata["response_skip_reason"], "daily_limit")
+
+    def test_pending_paid_fit_uses_cached_decision_and_saves_manual_outcome(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            url = "https://hh.ru/vacancy/123"
+            fingerprint = resume_fingerprint("Python-разработчик")
+            history.record_model_evaluation(
+                url,
+                resume_fingerprint=fingerprint,
+                model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Python backend подходит", ()),
+                pending_response=True,
+            )
+            traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                vacancy_matching=True,
+                auto_respond=True,
+                daily_response_limit=1,
+            )
+
+            def view(_page, _urls, _policy, **options):
+                assessment = options["matcher"].evaluate(
+                    VacancyDocument("Python backend", "FastAPI"), url
+                )
+                self.assertTrue(assessment.cached)
+                return [
+                    VacancyViewOutcome(
+                        url=url,
+                        result=result(
+                            ActivityKind.VIEW_VACANCY,
+                            vacancy_title="Python backend",
+                            match_accepted=assessment.accepted,
+                        ),
+                    )
+                ]
+
+            manual = result(
+                ActivityKind.RESPOND_VACANCY,
+                status=ActivityStatus.SKIPPED,
+                vacancy_id="123",
+                vacancy_title="Python backend",
+                response_status="manual_required",
+                manual_reason="questionnaire",
+            )
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.read_resume_text",
+                    return_value="Python backend",
+                ),
+                patch("hh_raiser.application.page_group_service.view_vacancies", side_effect=view),
+                patch("hh_raiser.application.page_group_service.PolzaVacancyClient") as client,
+                patch(
+                    "hh_raiser.application.page_group_service.respond_to_vacancy",
+                    return_value=manual,
+                ) as respond,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+            ):
+                run_vacancy_page_group(object(), policy, traversal, history, "Python-разработчик")
+
+            client.return_value.evaluate.assert_not_called()
+            respond.assert_called_once()
+            self.assertFalse(history.pending_model_response(url, fingerprint))
+            self.assertEqual(history.response_status(url), VacancyResponseStatus.MANUAL_REQUIRED)
+
+    def test_paid_fit_deferred_at_limit_is_sent_next_cycle_without_second_request(self) -> None:
+        with TemporaryDirectory() as directory:
+            history = VacancyHistory(Path(directory) / "history.sqlite3")
+            url = "https://hh.ru/vacancy/123"
+            fingerprint = resume_fingerprint("Python-разработчик")
+            policy = ActivityPolicy(
+                vacancies_per_cycle=1,
+                vacancy_matching=True,
+                auto_respond=True,
+                daily_response_limit=1,
+            )
+
+            def view(_page, _urls, _policy, **options):
+                assessment = options["matcher"].evaluate(
+                    VacancyDocument("Python backend", "FastAPI"), url
+                )
+                return [
+                    VacancyViewOutcome(
+                        url=url,
+                        result=result(
+                            ActivityKind.VIEW_VACANCY,
+                            vacancy_title="Python backend",
+                            match_accepted=assessment.accepted,
+                            semantic_verdict=assessment.semantic_verdict,
+                        ),
+                    )
+                ]
+
+            sent = result(
+                ActivityKind.RESPOND_VACANCY,
+                vacancy_id="123",
+                vacancy_title="Python backend",
+                response_status="sent",
+            )
+            with (
+                patch(
+                    "hh_raiser.application.page_group_service.view_search_page",
+                    return_value=(result(ActivityKind.REVIEW_SEARCH), [url], 1),
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.read_resume_text",
+                    return_value="Python backend",
+                ),
+                patch(
+                    "hh_raiser.application.page_group_service.view_vacancies",
+                    side_effect=view,
+                ),
+                patch("hh_raiser.application.page_group_service.PolzaVacancyClient") as client,
+                patch(
+                    "hh_raiser.application.page_group_service.respond_to_vacancy",
+                    return_value=sent,
+                ) as respond,
+                patch(
+                    "hh_raiser.application.page_group_service.review_resume",
+                    return_value=result(ActivityKind.REVIEW_RESUME),
+                ),
+                patch.object(history, "sent_response_count_today", side_effect=[0, 1, 0, 0]),
+            ):
+                client.return_value.evaluate.return_value = ModelDecision(
+                    "fit", "Python backend подходит", ()
+                )
+                first = run_vacancy_page_group(
+                    object(),
+                    policy,
+                    VacancyTraversal(("Python",), randomizer=random.Random(1)),
+                    history,
+                    "Python-разработчик",
+                )
+                self.assertTrue(history.pending_model_response(url, fingerprint))
+                self.assertEqual(
+                    next(
+                        item for item in first if item.action == ActivityKind.VIEW_VACANCY
+                    ).metadata["response_skip_reason"],
+                    "daily_limit",
+                )
+                respond.assert_not_called()
+
+                run_vacancy_page_group(
+                    object(),
+                    policy,
+                    VacancyTraversal(("Python",), randomizer=random.Random(1)),
+                    history,
+                    "Python-разработчик",
+                )
+
+            client.return_value.evaluate.assert_called_once()
+            respond.assert_called_once()
+            self.assertFalse(history.pending_model_response(url, fingerprint))
+            self.assertEqual(history.response_status(url), VacancyResponseStatus.SENT)
 
     def test_cached_model_decision_is_viewed_without_api_or_response(self) -> None:
         with TemporaryDirectory() as directory:

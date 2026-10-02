@@ -50,9 +50,12 @@ def read_instance_statistics(
                 connection,
                 "SELECT COALESCE(SUM(view_count), 0) FROM vacancies",
             )
-            model_table = connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vacancy_model_evaluations'"
-            ).fetchone() is not None
+            model_table = (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vacancy_model_evaluations'"
+                ).fetchone()
+                is not None
+            )
             evaluated = (
                 _scalar_int(connection, "SELECT COUNT(*) FROM vacancy_model_evaluations")
                 if model_table
@@ -65,6 +68,30 @@ def read_instance_statistics(
                 ).fetchall()
                 if model_table
                 else []
+            )
+            evaluation_columns = (
+                {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(vacancy_model_evaluations)")
+                }
+                if model_table
+                else set()
+            )
+            pending_responses = (
+                _scalar_int(
+                    connection,
+                    """SELECT COUNT(DISTINCT evaluation.vacancy_id)
+                    FROM vacancy_model_evaluations AS evaluation
+                    WHERE evaluation.verdict = 'fit' AND evaluation.response_state = 'pending'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM vacancy_responses AS response
+                          WHERE response.vacancy_id = evaluation.vacancy_id
+                            AND response.status IN
+                                ('sent', 'manual_required', 'already_sent', 'unknown')
+                      )""",
+                )
+                if "response_state" in evaluation_columns
+                else 0
             )
             response_rows = connection.execute(
                 "SELECT status, occurred_at FROM vacancy_responses"
@@ -84,6 +111,7 @@ def read_instance_statistics(
         today_sent=sent_counts_by_moscow_day(response_rows)[
             (now or datetime.now(MOSCOW)).astimezone(MOSCOW).date().isoformat()
         ],
+        pending_responses=pending_responses,
         daily_limit=daily_limit,
         responses_enabled=responses_enabled,
         matching_mode="polza" if matching_mode else None,
