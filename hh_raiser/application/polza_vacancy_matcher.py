@@ -24,9 +24,9 @@ VERDICT_LABELS = {
 }
 
 
-def resume_fingerprint(title: str, text: str) -> str:
-    """Invalidate a stored decision only when the selected resume changes."""
-    normalized = f"{' '.join(title.split())}\n{' '.join(text.split())}"
+def resume_fingerprint(title: str) -> str:
+    """Use the selected resume identity, not its periodically edited text."""
+    normalized = " ".join(title.casefold().split())
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
@@ -49,7 +49,7 @@ class PolzaVacancyMatcher:
         self.resume_text = resume_text
         self.prompt = prompt
         self.model = model
-        self.fingerprint = resume_fingerprint(resume_title, resume_text)
+        self.fingerprint = resume_fingerprint(resume_title)
 
     def already_evaluated(self, url: str) -> bool:
         return self.history.model_evaluation(url, self.fingerprint) is not None

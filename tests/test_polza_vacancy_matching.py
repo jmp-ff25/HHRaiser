@@ -83,7 +83,8 @@ class PolzaVacancyMatcherTests(unittest.TestCase):
             ).evaluate(vacancy, url)
             second = PolzaVacancyMatcher(
                 history=VacancyHistory(path), source=source, resume_title="Python",
-                resume_text="FastAPI   PostgreSQL", prompt="Оцени", model="deepseek",
+                resume_text="FastAPI   PostgreSQL, добавлена контрольная точка",
+                prompt="Оцени", model="deepseek",
             ).evaluate(vacancy, url)
             self.assertTrue(first.accepted)
             self.assertTrue(second.cached)
@@ -94,7 +95,14 @@ class PolzaVacancyMatcherTests(unittest.TestCase):
                 history=VacancyHistory(path), source=source, resume_title="Python",
                 resume_text="FastAPI и LangChain", prompt="Оцени", model="deepseek",
             ).evaluate(vacancy, url)
-            self.assertFalse(changed.cached)
+            self.assertTrue(changed.cached)
+            self.assertEqual(source.evaluate.call_count, 1)
+
+            other_resume = PolzaVacancyMatcher(
+                history=VacancyHistory(path), source=source, resume_title="Data Engineer",
+                resume_text="SQL pipelines", prompt="Оцени", model="deepseek",
+            ).evaluate(vacancy, url)
+            self.assertFalse(other_resume.cached)
             self.assertEqual(source.evaluate.call_count, 2)
 
     def test_incomplete_paid_answer_is_cached_as_unavailable(self) -> None:
@@ -112,7 +120,7 @@ class PolzaVacancyMatcherTests(unittest.TestCase):
             self.assertTrue(matcher.already_evaluated("https://hh.ru/vacancy/123"))
             self.assertEqual(
                 history.model_evaluation(
-                    "https://hh.ru/vacancy/123", resume_fingerprint("Python", "Backend")
+                    "https://hh.ru/vacancy/123", resume_fingerprint("Python")
                 ).verdict,
                 "unavailable",
             )

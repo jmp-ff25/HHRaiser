@@ -51,7 +51,7 @@ class PageGroupServiceTests(unittest.TestCase):
             url = "https://hh.ru/vacancy/137803190"
             history.record_model_evaluation(
                 url,
-                resume_fingerprint=resume_fingerprint("Python-разработчик", traversal.resume_text),
+                resume_fingerprint=resume_fingerprint("Python-разработчик"),
                 model="deepseek/deepseek-v4.1-flash",
                 decision=ModelDecision("fit", "Подходит", ()),
             )
