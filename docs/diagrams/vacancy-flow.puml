@@ -36,9 +36,9 @@ frame "1 · ОХВАТ ПОИСКА" as SearchStage {
 frame "2 · ДЕДУПЛИКАЦИЯ И ОЦЕНКА" as SelectionStage {
   rectangle "SQLite\nПроверить поколение\nи revisit_after_days" as History
   rectangle "Кандидат\nдоступен?" as Eligible #FFF7E8
-  rectangle "Matcher\nВычислить score 0–100" as Matcher
-  rectangle "score ≥\nmatch_threshold?" as Accepted #FFF7E8
-  rectangle "Допустить вакансию\nк просмотру · шаг 3" as Allowed #ECFDF5
+  rectangle "SQLite / Polza AI\nПроверить кэш или оценить" as Matcher
+  rectangle "Новый вердикт\nfit?" as Accepted #FFF7E8
+  rectangle "Допустить автоотклик\nпосле просмотра" as Allowed #ECFDF5
 
   History -right-> Eligible
   Eligible -right-> Matcher : да
@@ -49,8 +49,8 @@ frame "2 · ДЕДУПЛИКАЦИЯ И ОЦЕНКА" as SelectionStage {
     нет → пополнить выборку · шаг 4
   end note
   note bottom of Accepted #ECFDF5
-    нет → сохранить оценку
-    и проверить следующего кандидата
+    нет → только просмотреть вакансию
+    без автоотклика
   end note
 }
 

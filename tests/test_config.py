@@ -66,14 +66,14 @@ class ConfigTests(unittest.TestCase):
                     )
                 )
 
-    def test_multiline_matching_prompt_and_title_exclusions_are_configurable(self) -> None:
+    def test_multiline_matching_prompt_and_model_are_configurable(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
             path.write_text(
                 "[resume]\ntitle = Data Engineer\n"
-                "[matching]\nmode = semantic\n"
+                "[matching]\nmodel = deepseek/deepseek-v4.1-flash\n"
                 "prompt =\n    Сравни главные задачи.\n    Ответь JSON.\n"
-                "excluded_titles =\n    преподаватель\n    продажи\n",
+                "api_url = https://polza.ai/api/v1\n",
                 encoding="utf-8",
             )
             settings = resolve_runtime_settings(
@@ -85,15 +85,14 @@ class ConfigTests(unittest.TestCase):
                 )
             )
         self.assertEqual(settings.matching_prompt, "Сравни главные задачи.\nОтветь JSON.")
-        self.assertEqual(settings.matching_excluded_titles, ("преподаватель", "продажи"))
+        self.assertEqual(settings.matching_model, "deepseek/deepseek-v4.1-flash")
+        self.assertEqual(settings.matching_api_url, "https://polza.ai/api/v1")
 
-    def test_missing_prompt_uses_packaged_default_and_empty_title_list_disables_vetoes(
-        self,
-    ) -> None:
+    def test_missing_prompt_uses_packaged_default(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "hh-config.ini"
             path.write_text(
-                "[resume]\ntitle = Data Engineer\n[matching]\nexcluded_titles =\n",
+                "[resume]\ntitle = Data Engineer\n[matching]\n",
                 encoding="utf-8",
             )
             settings = resolve_runtime_settings(
@@ -105,7 +104,6 @@ class ConfigTests(unittest.TestCase):
                 )
             )
         self.assertEqual(settings.matching_prompt, DEFAULT_MATCHING_PROMPT)
-        self.assertEqual(settings.matching_excluded_titles, ())
 
     def test_explicit_empty_matching_prompt_is_rejected(self) -> None:
         with TemporaryDirectory() as directory:
@@ -127,8 +125,8 @@ class ConfigTests(unittest.TestCase):
     def test_example_configuration_remains_parseable(self) -> None:
         example = Path(__file__).parents[1] / "hh-config.example.ini"
         config = read_file_config(example)
-        self.assertEqual(config.matching_mode, "semantic")
-        self.assertTrue(config.matching_prompt)
+        self.assertEqual(config.matching_model, "deepseek/deepseek-v4.1-flash")
+        self.assertIsNone(config.matching_prompt)
 
     def test_reads_resume_and_multiple_queries_from_ini(self) -> None:
         with TemporaryDirectory() as directory:
@@ -143,7 +141,7 @@ class ConfigTests(unittest.TestCase):
                 "search_fields =\n    name\n"
                 "experience =\n    between1And3\n    between3And6\n"
                 "areas =\n    Москва\n    Санкт-Петербург\n"
-                "[matching]\nenabled = false\nthreshold = 67\n"
+                "[matching]\nenabled = false\nmodel = deepseek/deepseek-v4.1-flash\n"
                 "[responses]\nenabled = true\ndaily_limit = 25\n",
                 encoding="utf-8",
             )
@@ -155,7 +153,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.activity_interval_seconds, 600)
         self.assertEqual(config.search_pages_per_cycle, 30)
         self.assertFalse(config.vacancy_matching)
-        self.assertEqual(config.match_threshold, 67)
+        self.assertEqual(config.matching_model, "deepseek/deepseek-v4.1-flash")
         self.assertTrue(config.auto_respond)
         self.assertEqual(config.daily_response_limit, 25)
         self.assertEqual(config.search_filters.excluded_words, ("senior", "аналитик"))

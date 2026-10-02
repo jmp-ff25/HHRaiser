@@ -195,8 +195,8 @@ class CliTests(unittest.TestCase):
                 "--search-pages-per-cycle",
                 "40",
                 "--no-vacancy-matching",
-                "--match-threshold",
-                "68",
+                "--matching-model",
+                "deepseek/deepseek-v4.1-flash",
                 "--auto-respond",
                 "--daily-response-limit",
                 "25",
@@ -213,7 +213,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.vacancy_view_seconds, 8.5)
         self.assertEqual(args.search_pages_per_cycle, 40)
         self.assertFalse(args.vacancy_matching)
-        self.assertEqual(args.match_threshold, 68)
+        self.assertEqual(args.matching_model, "deepseek/deepseek-v4.1-flash")
         self.assertTrue(args.auto_respond)
         self.assertEqual(args.daily_response_limit, 25)
         self.assertTrue(args.telegram_captcha)

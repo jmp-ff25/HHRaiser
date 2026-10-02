@@ -24,7 +24,7 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("silent: true", help_task.group("body"))
         self.assertIn("hh-resume-raiser --help", cli_help_task.group("body"))
 
-    def test_every_setup_entrypoint_prepares_ollama_model(self) -> None:
+    def test_setup_entrypoints_do_not_install_local_model(self) -> None:
         root = Path(__file__).parents[1]
         taskfile = (root / "Taskfile.yml").read_text(encoding="utf-8")
         setup_task = re.search(
@@ -42,7 +42,7 @@ class TaskfileTests(unittest.TestCase):
         for script_name in ("setup.ps1", "setup.sh", "install-ubuntu.sh"):
             with self.subTest(script=script_name):
                 script = (root / "scripts" / script_name).read_text(encoding="utf-8")
-                self.assertIn("python -m hh_raiser.setup_ollama", script)
+                self.assertNotIn("hh_raiser.setup_ollama", script)
 
     def test_setup_creates_config_templates_without_replacing_existing_files(self) -> None:
         root = Path(__file__).parents[1]
@@ -67,16 +67,16 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("  reset-data:\n", taskfile)
         self.assertIn("python -m hh_raiser.reset_data\n", taskfile)
 
-    def test_ollama_view_task_disables_responses(self) -> None:
+    def test_polza_view_task_disables_responses(self) -> None:
         taskfile = (Path(__file__).parents[1] / "Taskfile.yml").read_text(encoding="utf-8")
         task_match = re.search(
-            r"^  activity-ollama-once:\n(?P<task>.*?)(?=^  \S|\Z)",
+            r"^  activity-polza-once:\n(?P<task>.*?)(?=^  \S|\Z)",
             taskfile,
             flags=re.MULTILINE | re.DOTALL,
         )
         self.assertIsNotNone(task_match)
         task = task_match.group("task")
-        self.assertIn("--matching-mode semantic --no-auto-respond", task)
+        self.assertIn("--no-auto-respond", task)
         self.assertNotIn("{{.RESPONSE_ARGS}}", task)
 
     def test_launch_profiles_do_not_override_configurable_numbers(self) -> None:
@@ -179,7 +179,8 @@ class TaskfileTests(unittest.TestCase):
         self.assertIn("Environment=HHRAISER_LOG_COLOR=true", service)
         self.assertIn("--config-file state/%i/hh-config.ini", service)
         self.assertIn("--profile-dir state/%i/browser-profile", service)
-        self.assertIn("After=network-online.target ollama.service", service)
+        self.assertIn("After=network-online.target", service)
+        self.assertNotIn("ollama.service", service)
 
     def test_server_bot_uses_system_wide_systemd(self) -> None:
         service = (

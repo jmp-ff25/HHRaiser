@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 import unittest
 from pathlib import Path
@@ -11,14 +12,14 @@ from hh_raiser.application.page_group_service import (
     _response_outcome_message,
     run_vacancy_page_group,
 )
+from hh_raiser.application.polza_vacancy_matcher import resume_fingerprint
 from hh_raiser.application.vacancy_traversal import VacancyTraversal
 from hh_raiser.bot.statistics import read_instance_statistics
 from hh_raiser.domain.action import ActivityKind
-from hh_raiser.domain.matching import VacancyDocument
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
-from hh_raiser.infrastructure.local_semantic_matcher import SemanticDecision
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 
 
@@ -32,7 +33,12 @@ def result(
 
 
 class PageGroupServiceTests(unittest.TestCase):
-    def test_model_fit_for_unrelated_specialist_role_never_reaches_response_button(self) -> None:
+    def setUp(self) -> None:
+        key = patch.dict(os.environ, {"HHRAISER_MATCHING_API_KEY": "test-key"})
+        key.start()
+        self.addCleanup(key.stop)
+
+    def test_cached_model_decision_is_viewed_without_api_or_response(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")
             traversal = VacancyTraversal(("Python",), randomizer=random.Random(1))
@@ -40,31 +46,25 @@ class PageGroupServiceTests(unittest.TestCase):
             policy = ActivityPolicy(
                 vacancies_per_cycle=1,
                 vacancy_matching=True,
-                matching_mode="semantic",
-                matching_excluded_titles=("fullstack",),
                 auto_respond=True,
             )
             url = "https://hh.ru/vacancy/137803190"
+            history.record_model_evaluation(
+                url,
+                resume_fingerprint=resume_fingerprint("Python-разработчик", traversal.resume_text),
+                model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Подходит", ()),
+            )
 
             def assess(_page, _urls, _policy, **options):
-                assessment = options["matcher"].evaluate(
-                    VacancyDocument(
-                        "Инженер-разработчик SDR / RF / DSP",
-                        "Разработка цифрового радиоканала на SDR.",
-                        ("Python",),
-                    )
-                )
+                self.assertIsNone(options["matcher"])
                 return [
                     VacancyViewOutcome(
                         url=url,
                         result=result(
                             ActivityKind.VIEW_VACANCY,
                             vacancy_title="Инженер-разработчик SDR / RF / DSP",
-                            match_evaluated=True,
-                            match_score=assessment.score,
-                            match_accepted=assessment.accepted,
-                            semantic_mode=assessment.semantic_mode,
-                            semantic_verdict=assessment.semantic_verdict,
+                            scrolls_completed=2,
                         ),
                     )
                 ]
@@ -76,10 +76,6 @@ class PageGroupServiceTests(unittest.TestCase):
                 ),
                 patch(
                     "hh_raiser.application.page_group_service.view_vacancies", side_effect=assess
-                ),
-                patch(
-                    "hh_raiser.infrastructure.local_semantic_matcher.query_local_model",
-                    return_value=SemanticDecision("fit", "Python указан", ()),
                 ),
                 patch("hh_raiser.application.page_group_service.respond_to_vacancy") as respond,
                 patch(
@@ -98,7 +94,6 @@ class PageGroupServiceTests(unittest.TestCase):
             policy = ActivityPolicy(
                 vacancies_per_cycle=1,
                 vacancy_matching=True,
-                matching_mode="semantic",
                 auto_respond=False,
             )
             url = "https://hh.ru/vacancy/123"
@@ -176,7 +171,7 @@ class PageGroupServiceTests(unittest.TestCase):
             respond.assert_not_called()
             self.assertTrue(any(item.action == ActivityKind.VIEW_VACANCY for item in results))
 
-    def test_semantic_verdict_controls_response_even_when_lexical_score_is_low(self) -> None:
+    def test_model_verdict_controls_response(self) -> None:
         for verdict, should_respond in (("fit", True), ("unsure", False)):
             with self.subTest(verdict=verdict), TemporaryDirectory() as directory:
                 history = VacancyHistory(Path(directory) / "vacancy-history.sqlite3")
@@ -184,7 +179,6 @@ class PageGroupServiceTests(unittest.TestCase):
                 policy = ActivityPolicy(
                     vacancies_per_cycle=1,
                     vacancy_matching=True,
-                    matching_mode="semantic",
                     auto_respond=True,
                 )
                 url = "https://hh.ru/vacancy/123"
@@ -231,8 +225,6 @@ class PageGroupServiceTests(unittest.TestCase):
                     run_vacancy_page_group(object(), policy, traversal, history, "Python backend")
                 self.assertEqual(respond.called, should_respond)
                 self.assertEqual(history.sent_response_count_today(), int(should_respond))
-                statistics = read_instance_statistics(Path(directory))
-                self.assertEqual(statistics.semantic_verdicts, {verdict: 1})
 
     def test_groups_every_vacancy_even_when_history_already_has_views(self) -> None:
         with TemporaryDirectory() as directory:

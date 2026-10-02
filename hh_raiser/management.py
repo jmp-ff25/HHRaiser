@@ -15,9 +15,7 @@ from hh_raiser.bot.config import BotConfigError, load_bot_settings
 from hh_raiser.cli import build_parser as build_worker_parser
 from hh_raiser.config import resolve_runtime_settings
 from hh_raiser.env_file import EnvFileError, load_env_file
-from hh_raiser.infrastructure.local_semantic_matcher import VERDICT_LABELS
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
-from hh_raiser.reporting.matching_review import read_matching_disagreements
 
 MAIN_SERVICE = "hhraiser@main.service"
 BOT_SERVICE = "hhraiser-bot.service"
@@ -59,10 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     responses.add_argument("--date", type=date.fromisoformat, required=True)
     responses.add_argument("--target", type=_non_negative_target, required=True)
-    review = subcommands.add_parser(
-        "matching-review", help="Показать расхождения локальной и прежней оценок вакансий."
-    )
-    review.add_argument("--limit", type=_positive_lines, default=20)
     return parser
 
 
@@ -99,7 +93,12 @@ def validate_setup(layout: ProjectLayout, *, environment: dict[str, str] | None 
         ["--config-file", str(layout.config_file), "--full-activity"]
     )
     try:
-        resolve_runtime_settings(worker_args)
+        settings = resolve_runtime_settings(worker_args)
+        if settings.vacancy_matching and not (
+            source.get("HHRAISER_MATCHING_API_KEY")
+            or source.get("POLZA_MATCHING_TEST_API_KEY")
+        ):
+            raise SetupError("Не заполнен HHRAISER_MATCHING_API_KEY в .env")
         load_bot_settings(layout.env_file, environment=source)
     except (BotConfigError, ValueError) as error:
         raise SetupError(str(error)) from error
@@ -154,20 +153,6 @@ def main(argv: list[str] | None = None) -> int:
             f"недоступны — {summary.unavailable}; ошибки — {summary.error}."
         )
         return 0 if summary.meets_target(args.target) else 1
-    if args.command == "matching-review":
-        path = layout.root / "state" / "main" / "activity-events.jsonl"
-        disagreements = read_matching_disagreements(path, limit=args.limit)
-        if not disagreements:
-            print("Расхождения пока не найдены. Для их сбора включите matching.mode = shadow.")
-            return 0
-        for item in disagreements:
-            previous = "подходит" if item.lexical_accepted else "отклонена"
-            print(
-                f"{item.title}: прежняя оценка {item.lexical_score}% ({previous}); "
-                f"локальная — {VERDICT_LABELS[item.semantic_verdict]}.\n{item.url}\n{item.reason}\n"
-                f"{item.gaps}\n"
-            )
-        return 0
     if args.command in {"setup", "reconfigure"}:
         result = _require_valid_setup(layout)
         if result == 0:

@@ -4,9 +4,10 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from hh_raiser.application.polza_vacancy_matcher import PolzaVacancyMatcher
 from hh_raiser.browser import is_closed_playwright_error
 from hh_raiser.domain.action import ActivityKind
-from hh_raiser.domain.matching import VacancyCompatibilityMatcher, VacancyDocument
+from hh_raiser.domain.matching import VacancyDocument
 from hh_raiser.domain.policies import ActivityPolicy
 from hh_raiser.domain.result import ActivityResult, ActivityStatus
 from hh_raiser.infrastructure.browser.captcha_guard import CaptchaResolver, resolve_captcha
@@ -18,7 +19,6 @@ from hh_raiser.infrastructure.hh.selectors import (
     VACANCY_HEADING,
     VACANCY_SKILL,
 )
-from hh_raiser.infrastructure.local_semantic_matcher import LocalSemanticMatcher
 from hh_raiser.logging_config import LOGGER, LogEvent, event_data
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ def view_vacancies(
     vacancy_urls: list[str],
     policy: ActivityPolicy,
     *,
-    matcher: VacancyCompatibilityMatcher | LocalSemanticMatcher | None = None,
+    matcher: PolzaVacancyMatcher | None = None,
     captcha_guard: CaptchaResolver | None = None,
     stop_requested: Callable[[], bool] | None = None,
     view_below_threshold: bool = False,
@@ -102,30 +102,10 @@ def view_vacancies(
                         title=vacancy_title,
                         description=description.first.inner_text(),
                         skills=tuple(page.locator(VACANCY_SKILL).all_inner_texts()),
-                    )
+                    ),
+                    canonical,
                 )
                 if assessment.applied:
-                    if assessment.semantic_mode != "semantic":
-                        LOGGER.info(
-                            "Лексическая оценка вакансии %s из %s «%s»: "
-                            "%s%% (порог %s%%, %s); допуск: %s.",
-                            shown_index,
-                            shown_total,
-                            vacancy_title,
-                            assessment.score,
-                            policy.match_threshold,
-                            "проходит" if assessment.score >= policy.match_threshold else "ниже порога",
-                            "подходит" if assessment.accepted else "отклонена",
-                            extra=event_data(
-                                LogEvent.VACANCY_MATCH,
-                                match_score=assessment.score,
-                                match_threshold=policy.match_threshold,
-                                semantic_mode=assessment.semantic_mode,
-                                semantic_verdict=assessment.semantic_verdict,
-                                vacancy_title=vacancy_title,
-                                vacancy_url=canonical,
-                            ),
-                        )
                     if not assessment.accepted and not view_below_threshold:
                         yielded = True
                         yield VacancyViewOutcome(
@@ -144,22 +124,6 @@ def view_vacancies(
                                     "semantic_verdict": assessment.semantic_verdict,
                                     "semantic_reason": assessment.semantic_reason,
                                     "semantic_gaps": ", ".join(assessment.semantic_gaps),
-                                    "title_similarity": round(
-                                        assessment.title_similarity,
-                                        4,
-                                    ),
-                                    "bm25f_relevance": round(
-                                        assessment.bm25f_relevance,
-                                        4,
-                                    ),
-                                    "skills_coverage": round(
-                                        assessment.skills_coverage,
-                                        4,
-                                    ),
-                                    "lexical_similarity": round(
-                                        assessment.lexical_similarity,
-                                        4,
-                                    ),
                                     "scrolls_completed": 0,
                                     "vacancy_title": vacancy_title,
                                     "company_name": company_name,
@@ -169,7 +133,7 @@ def view_vacancies(
                         continue
                 else:
                     LOGGER.warning(
-                        "Сопоставление вакансии «%s» пропущено: текст резюме недоступен.",
+                        "Оценка вакансии «%s» недоступна; отклик запрещён.",
                         vacancy_title,
                         extra=event_data(
                             LogEvent.VACANCY_MATCH,

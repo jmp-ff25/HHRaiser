@@ -16,6 +16,7 @@ from hh_raiser.bot.presentation import (
     format_statistics,
 )
 from hh_raiser.bot.statistics import read_instance_statistics, sent_counts_by_moscow_day
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 from hh_raiser.models import MOSCOW
@@ -33,7 +34,10 @@ class BotStatisticsTests(unittest.TestCase):
                 limit=1,
                 revisit_after_days=0,
             )
-            history.mark_evaluated(url, score=72, accepted=True)
+            history.record_model_evaluation(
+                url, resume_fingerprint="resume", model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Совпадают задачи", ()),
+            )
             history.mark_viewed(url)
             history.record_response(
                 VacancyResponseRecord.now(
@@ -58,7 +62,6 @@ class BotStatisticsTests(unittest.TestCase):
         self.assertEqual(statistics.viewed_vacancies, 1)
         self.assertEqual(statistics.total_views, 1)
         self.assertEqual(statistics.evaluated, 1)
-        self.assertEqual(statistics.average_lexical_score, 72)
         self.assertEqual(statistics.responses_by_status["sent"], 1)
         self.assertEqual(statistics.today_sent, 1)
         self.assertEqual(statistics.next_raise_at, next_raise)
@@ -87,8 +90,7 @@ class BotStatisticsTests(unittest.TestCase):
                     """
                 )
             statistics = read_instance_statistics(state_dir)
-        self.assertEqual(statistics.evaluated, 1)
-        self.assertEqual(statistics.average_lexical_score, 42)
+        self.assertEqual(statistics.evaluated, 0)
         self.assertEqual(statistics.semantic_verdicts, {})
 
     def test_presentation_explains_counters_and_escapes_logs(self) -> None:
@@ -131,13 +133,12 @@ class BotStatisticsTests(unittest.TestCase):
             viewed_vacancies=5,
             total_views=5,
             evaluated=5,
-            average_lexical_score=70,
             responses_by_status=Counter({"sent": 1, "already_sent": 5, "manual_required": 1}),
             next_raise_at=None,
             today_sent=1,
             daily_limit=15,
             responses_enabled=True,
-            matching_mode="semantic",
+            matching_mode="polza",
             semantic_verdicts={"fit": 2, "unfit": 3},
         )
 
@@ -149,7 +150,7 @@ class BotStatisticsTests(unittest.TestCase):
         )
 
         self.assertIn("Учтено исходов обработки вакансий: <b>7</b>", text)
-        self.assertIn("Средняя лексическая оценка, справочно: <b>70.0%</b>", text)
+        self.assertIn("Оценок через Polza AI: <b>5</b>", text)
         self.assertIn("подходит: 2", text)
         self.assertIn("Подтверждённые отклики сегодня (Москва): 1 из 15", text)
         self.assertIn("отклик уже существовал до обработки HHRaiser: 5", text)
@@ -177,8 +178,9 @@ class BotStatisticsTests(unittest.TestCase):
             history = VacancyHistory(state_dir / "vacancy-history.sqlite3")
             url = "https://hh.ru/vacancy/123"
             history.reserve_unseen(urls=[url], search_query="Python", limit=1, revisit_after_days=0)
-            history.mark_evaluated(
-                url, score=20, accepted=True, mode="semantic", semantic_verdict="fit"
+            history.record_model_evaluation(
+                url, resume_fingerprint="resume", model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Совпадают задачи", ()),
             )
             history.record_response(
                 VacancyResponseRecord(
@@ -194,7 +196,7 @@ class BotStatisticsTests(unittest.TestCase):
             )
             config = state_dir / "hh-config.ini"
             config.write_text(
-                "[matching]\nmode = semantic\n[responses]\nenabled = true\ndaily_limit = 25\n",
+                "[matching]\nenabled = true\n[responses]\nenabled = true\ndaily_limit = 25\n",
                 encoding="utf-8",
             )
             statistics = read_instance_statistics(
@@ -205,4 +207,3 @@ class BotStatisticsTests(unittest.TestCase):
         self.assertEqual(statistics.today_sent, 1)
         self.assertEqual(statistics.daily_limit, 25)
         self.assertEqual(statistics.semantic_verdicts, {"fit": 1})
-        self.assertEqual(statistics.average_lexical_score, 20)

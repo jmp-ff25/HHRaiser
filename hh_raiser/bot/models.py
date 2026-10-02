@@ -56,7 +56,6 @@ class InstanceStatistics:
     viewed_vacancies: int
     total_views: int
     evaluated: int
-    average_lexical_score: float | None
     responses_by_status: Mapping[str, int]
     next_raise_at: datetime | None
     today_sent: int = 0

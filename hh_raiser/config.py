@@ -15,7 +15,8 @@ DEFAULT_VACANCIES_PER_GROUP = 5
 DEFAULT_ACTIVITY_INTERVAL_SECONDS = 300
 DEFAULT_SEARCH_PAGES_PER_CYCLE = 25
 DEFAULT_VACANCY_MATCHING = True
-DEFAULT_MATCH_THRESHOLD = 55
+DEFAULT_MATCHING_MODEL = "deepseek/deepseek-v4.1-flash"
+DEFAULT_MATCHING_API_URL = "https://polza.ai/api/v1"
 DEFAULT_AUTO_RESPOND = True
 DEFAULT_DAILY_RESPONSE_LIMIT = 0
 DEFAULT_HEADLESS_VIEWPORT_WIDTH = 1920
@@ -35,11 +36,9 @@ class FileConfig:
     activity_interval_seconds: int | None = None
     search_pages_per_cycle: int | None = None
     vacancy_matching: bool | None = None
-    match_threshold: int | None = None
-    matching_mode: str | None = None
-    local_matching_model: str | None = None
+    matching_model: str | None = None
+    matching_api_url: str | None = None
     matching_prompt: str | None = None
-    matching_excluded_titles: tuple[str, ...] | None = None
     auto_respond: bool | None = None
     daily_response_limit: int | None = None
     captcha_answer_source: bool | None = None
@@ -56,11 +55,9 @@ class RuntimeSettings:
     activity_interval_seconds: int
     search_pages_per_cycle: int
     vacancy_matching: bool
-    match_threshold: int
-    matching_mode: str
-    local_matching_model: str
+    matching_model: str
+    matching_api_url: str
     matching_prompt: str
-    matching_excluded_titles: tuple[str, ...] | None
     auto_respond: bool
     daily_response_limit: int
     captcha_answer_source: bool
@@ -112,15 +109,9 @@ def read_file_config(path: Path) -> FileConfig:
         )
         search_pages_per_cycle = parser.getint("activity", "search_pages_per_cycle", fallback=None)
         vacancy_matching = parser.getboolean("matching", "enabled", fallback=None)
-        match_threshold = parser.getint("matching", "threshold", fallback=None)
-        matching_mode = parser.get("matching", "mode", fallback=None)
-        local_matching_model = parser.get("matching", "local_model", fallback=None)
+        matching_model = parser.get("matching", "model", fallback=None)
+        matching_api_url = parser.get("matching", "api_url", fallback=None)
         matching_prompt = parser.get("matching", "prompt", fallback=None)
-        matching_excluded_titles = (
-            parse_search_queries(parser.get("matching", "excluded_titles"))
-            if parser.has_option("matching", "excluded_titles")
-            else None
-        )
         auto_respond = parser.getboolean("responses", "enabled", fallback=None)
         daily_response_limit = parser.getint("responses", "daily_limit", fallback=None)
         captcha_answer_source = parser.getboolean("captchasolution", "enabled", fallback=None)
@@ -151,11 +142,9 @@ def read_file_config(path: Path) -> FileConfig:
         activity_interval_seconds=activity_interval_seconds,
         search_pages_per_cycle=search_pages_per_cycle,
         vacancy_matching=vacancy_matching,
-        match_threshold=match_threshold,
-        matching_mode=matching_mode,
-        local_matching_model=local_matching_model,
+        matching_model=matching_model,
+        matching_api_url=matching_api_url,
         matching_prompt=matching_prompt,
-        matching_excluded_titles=matching_excluded_titles,
         auto_respond=auto_respond,
         daily_response_limit=daily_response_limit,
         captcha_answer_source=captcha_answer_source,
@@ -195,17 +184,10 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         if getattr(args, "vacancy_matching", None) is not None
         else file_config.vacancy_matching
     )
-    match_threshold = (
-        getattr(args, "match_threshold", None)
-        if getattr(args, "match_threshold", None) is not None
-        else file_config.match_threshold
+    matching_model = (
+        getattr(args, "matching_model", None) or file_config.matching_model or DEFAULT_MATCHING_MODEL
     )
-    matching_mode = getattr(args, "matching_mode", None) or file_config.matching_mode or "lexical"
-    local_matching_model = (
-        getattr(args, "local_matching_model", None)
-        or file_config.local_matching_model
-        or "qwen3:1.7b"
-    )
+    matching_api_url = file_config.matching_api_url or DEFAULT_MATCHING_API_URL
     matching_prompt = textwrap.dedent(
         file_config.matching_prompt
         if file_config.matching_prompt is not None
@@ -213,8 +195,10 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
     ).strip()
     if not matching_prompt or len(matching_prompt) > 12_000:
         raise ValueError("matching.prompt должен содержать от 1 до 12000 символов")
-    if matching_mode not in {"lexical", "shadow", "semantic"}:
-        raise ValueError("matching.mode должен быть lexical, shadow или semantic")
+    if not matching_model.strip():
+        raise ValueError("matching.model не может быть пустым")
+    if not matching_api_url.startswith("https://"):
+        raise ValueError("matching.api_url должен использовать HTTPS")
     auto_respond = (
         getattr(args, "auto_respond", None)
         if getattr(args, "auto_respond", None) is not None
@@ -294,16 +278,9 @@ def resolve_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         vacancy_matching=(
             vacancy_matching if vacancy_matching is not None else DEFAULT_VACANCY_MATCHING
         ),
-        match_threshold=_validate_range(
-            "matching.threshold",
-            match_threshold if match_threshold is not None else DEFAULT_MATCH_THRESHOLD,
-            minimum=0,
-            maximum=100,
-        ),
-        matching_mode=matching_mode,
-        local_matching_model=local_matching_model,
+        matching_model=matching_model,
+        matching_api_url=matching_api_url,
         matching_prompt=matching_prompt,
-        matching_excluded_titles=file_config.matching_excluded_titles,
         auto_respond=(auto_respond if auto_respond is not None else DEFAULT_AUTO_RESPOND),
         daily_response_limit=_validate_range(
             "responses.daily_limit",

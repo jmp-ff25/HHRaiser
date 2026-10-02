@@ -55,19 +55,6 @@ class ResetDataTests(unittest.TestCase):
         ):
             reset_data(Path(directory), check_services=False)
 
-    def test_stops_only_own_portable_ollama_process(self) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            portable = root / "state" / "main" / "local-ollama" / "ollama.exe"
-            portable.parent.mkdir(parents=True)
-            portable.touch()
-            (root / "state" / "main" / "ollama-server.pid").write_text("123", encoding="ascii")
-            with patch.object(reset_module.subprocess, "run") as run:
-                run.side_effect = [Mock(stdout=str(portable)), Mock(), Mock(stdout=b"")]
-                reset_module._stop_project_ollama(root)
-            self.assertEqual(run.call_count, 3)
-            self.assertIn("Stop-Process -Id 123", run.call_args_list[1].args[0][-1])
-
     def test_rejects_active_server_instance_before_cleanup(self) -> None:
         with (
             patch.object(reset_module.sys, "platform", "linux"),

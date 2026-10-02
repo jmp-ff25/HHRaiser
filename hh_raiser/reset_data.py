@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 STATE_DIRECTORIES = ("state", ".hh-resume-raiser")
@@ -76,57 +75,6 @@ def _ensure_services_stopped() -> None:
         raise RuntimeError("Сначала остановите работающие службы: " + ", ".join(active))
 
 
-def _stop_project_ollama(root: Path) -> None:
-    """Stop only the portable Windows server launched by this project's setup."""
-    if sys.platform != "win32":
-        return
-    state_dir = root / "state" / "main"
-    if (root / "state").is_symlink() or state_dir.is_symlink():
-        return
-    pid_file = root / "state" / "main" / "ollama-server.pid"
-    portable = root / "state" / "main" / "local-ollama" / "ollama.exe"
-    if not pid_file.is_file() or not portable.is_file():
-        return
-    try:
-        pid = int(pid_file.read_text(encoding="ascii").strip())
-    except ValueError:
-        return
-    if pid < 1:
-        return
-    query = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-Command",
-            f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Path",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    executable = query.stdout.strip()
-    if not executable or executable.casefold() != str(portable).casefold():
-        return
-    subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", f"Stop-Process -Id {pid} -Force"],
-        check=True,
-    )
-    for _ in range(20):
-        probe = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-Command",
-                f"Get-Process -Id {pid} -ErrorAction SilentlyContinue",
-            ],
-            capture_output=True,
-            check=False,
-        )
-        if not probe.stdout:
-            break
-        time.sleep(0.25)
-
-
 def reset_data(
     project_dir: Path, *, dry_run: bool = False, check_services: bool = True
 ) -> list[Path]:
@@ -135,8 +83,6 @@ def reset_data(
         raise ValueError(f"Не найден корень проекта HHRaiser: {root}")
     if check_services:
         _ensure_services_stopped()
-    if not dry_run:
-        _stop_project_ollama(root)
     removed: list[Path] = []
     for name in STATE_DIRECTORIES:
         directory = root / name

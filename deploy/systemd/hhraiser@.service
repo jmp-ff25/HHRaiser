@@ -1,7 +1,7 @@
 [Unit]
 Description=HHRaiser instance %i
-After=network-online.target ollama.service
-Wants=network-online.target ollama.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple

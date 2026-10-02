@@ -20,8 +20,4 @@ uv sync --locked --extra dev
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 uv run --locked playwright install chromium
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-uv run --locked python -m hh_raiser.setup_ollama
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "Установка готова. Заполните .env и state/main/hh-config.ini, затем запустите task full-activity."
-}
-exit $LASTEXITCODE
+Write-Host "Установка готова. Заполните .env и state/main/hh-config.ini, затем запустите task full-activity."

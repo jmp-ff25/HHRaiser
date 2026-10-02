@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from hh_raiser.bot.charts import ChartReadError, render_statistics_dashboard
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import VacancyResponseRecord, VacancyResponseStatus
 from hh_raiser.infrastructure.storage.vacancy_history import VacancyHistory
 
@@ -21,8 +22,9 @@ class BotChartTests(unittest.TestCase):
                 limit=1,
                 revisit_after_days=0,
             )
-            history.mark_evaluated(
-                url, score=78, accepted=True, mode="semantic", semantic_verdict="fit"
+            history.record_model_evaluation(
+                url, resume_fingerprint="resume", model="deepseek/deepseek-v4.1-flash",
+                decision=ModelDecision("fit", "Совпадают задачи", ()),
             )
             history.mark_viewed(url)
             history.record_response(

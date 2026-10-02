@@ -263,11 +263,9 @@ def build_activity_policy(args: argparse.Namespace) -> ActivityPolicy:
         scroll_pause_seconds=args.scroll_pause_seconds,
         vacancy_view_seconds=args.vacancy_view_seconds,
         vacancy_matching=args.vacancy_matching,
-        match_threshold=args.match_threshold,
-        matching_mode=args.matching_mode,
-        local_matching_model=args.local_matching_model,
+        matching_model=args.matching_model,
+        matching_api_url=args.matching_api_url,
         matching_prompt=args.matching_prompt,
-        matching_excluded_titles=args.matching_excluded_titles,
         auto_respond=args.auto_respond,
         daily_response_limit=args.daily_response_limit,
         search_filters=args.search_filters,
@@ -439,21 +437,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Проверять соответствие вакансии резюме до содержательного просмотра.",
     )
     parser.add_argument(
-        "--match-threshold",
-        type=lambda value: bounded_non_negative_int(value, maximum=100),
+        "--matching-model",
         default=None,
-        help="Минимальная оценка соответствия для просмотра вакансии, от 0 до 100.",
-    )
-    parser.add_argument(
-        "--matching-mode",
-        choices=("lexical", "shadow", "semantic"),
-        default=None,
-        help="lexical — прежний фильтр; shadow — локальная оценка без влияния на отклики; semantic — локальное решение.",
-    )
-    parser.add_argument(
-        "--local-matching-model",
-        default=None,
-        help="Имя установленной локальной модели Ollama (по умолчанию qwen3:1.7b).",
+        help="Модель Polza AI для оценки вакансий (по умолчанию deepseek/deepseek-v4.1-flash).",
     )
     parser.add_argument(
         "--auto-respond",
@@ -689,15 +675,18 @@ def main(argv: list[str] | None = None) -> int:
     args.search_queries = settings.search_queries
     args.search_pages_per_cycle = settings.search_pages_per_cycle
     args.vacancy_matching = settings.vacancy_matching
-    args.match_threshold = settings.match_threshold
-    args.matching_mode = settings.matching_mode
-    args.local_matching_model = settings.local_matching_model
+    args.matching_model = settings.matching_model
+    args.matching_api_url = settings.matching_api_url
     args.matching_prompt = settings.matching_prompt
-    args.matching_excluded_titles = settings.matching_excluded_titles
     args.auto_respond = settings.auto_respond
     args.daily_response_limit = settings.daily_response_limit
     args.captcha_answer_source = settings.captcha_answer_source
     args.search_filters = settings.search_filters
+    if args.full_activity and args.vacancy_matching and not (
+        os.environ.get("HHRAISER_MATCHING_API_KEY")
+        or os.environ.get("POLZA_MATCHING_TEST_API_KEY")
+    ):
+        parser.error("Для оценки вакансий задайте HHRAISER_MATCHING_API_KEY в .env")
     if args.full_activity and args.search_filters.areas:
         try:
             resolved_areas = resolve_current_areas(args.search_filters.areas)

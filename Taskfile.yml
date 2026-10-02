@@ -28,7 +28,7 @@ tasks:
       - task: setup
 
   setup:
-    desc: Установить uv, Python, Chromium и Ollama; создать шаблоны настроек
+    desc: Установить uv, Python и Chromium; создать шаблоны настроек
     cmds:
       - cmd: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
         platforms: [windows]
@@ -36,13 +36,12 @@ tasks:
         platforms: [linux, darwin]
 
   install-dev:
-    desc: Установить инструменты разработки, Chromium и модель Ollama
+    desc: Установить инструменты разработки и Chromium
     cmds:
       - uv sync --locked --extra dev
       - uv run --locked playwright install chromium
       - task: prepare-config
       - task: prepare-env
-      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
 
   install-browser:
     desc: Установить Chromium для Playwright
@@ -158,13 +157,13 @@ tasks:
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}} {{.CLI_ARGS}}
 
-  activity-ollama-once:
-    desc: Один видимый цикл с оценкой Ollama без откликов и без лексических логов
+  activity-polza-once:
+    desc: Один видимый цикл оценки Polza AI без откликов; вакансии будут сохранены как оценённые
     cmds:
       - >-
         uv run --locked hh-resume-raiser --once
         {{.ACTIVITY_ARGS}} {{.COMMON_ARGS}}
-        --matching-mode semantic --no-auto-respond {{.CLI_ARGS}}
+        --no-auto-respond {{.CLI_ARGS}}
 
   activity-responses:
     desc: Просматривать вакансии и безопасно откликаться без обязательных форм
@@ -257,30 +256,6 @@ tasks:
       vars: [DATE, TARGET]
     cmds:
       - uv run --locked hhraiser responses --date {{.DATE}} --target {{.TARGET}}
-
-  local-matching-e2e:
-    desc: Проверить локальную модель на пограничных Python, AI, RAG и неподходящих ролях
-    env:
-      HH_LOCAL_MATCHING_E2E: "1"
-    cmds:
-      - uv run --locked --extra dev python -m unittest tests.test_local_matching_live -v
-
-  local-matching-serve:
-    desc: Запустить установленный Ollama для локальной оценки вакансий
-    env:
-      OLLAMA_HOST: 127.0.0.1:11434
-    cmds:
-      - ollama serve
-
-  local-matching-pull:
-    desc: Скачать модель из matching.local_model в общее хранилище Ollama
-    cmds:
-      - uv run --locked python -m hh_raiser.setup_ollama --config-file "{{.CONFIG_FILE}}"
-
-  matching-review:
-    desc: Показать вакансии, по которым прежний фильтр и локальная модель не согласились
-    cmds:
-      - uv run --locked hhraiser matching-review
 
   log-colors:
     desc: Показать палитру уровней и категорий логов без запуска браузера

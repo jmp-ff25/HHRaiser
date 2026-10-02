@@ -71,6 +71,7 @@ class ManagementTests(unittest.TestCase):
             layout.env_file.write_text(
                 "HH_PHONE=79990000000\n"
                 "HH_PASSWORD=password\n"
+                "HHRAISER_MATCHING_API_KEY=test-key\n"
                 "HHRAISER_BOT_TOKEN=token\n"
                 "HHRAISER_BOT_ALLOWED_USER_IDS=1\n"
                 "HHRAISER_BOT_INSTANCES=main\n"

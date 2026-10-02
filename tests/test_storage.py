@@ -220,19 +220,6 @@ class VacancyHistoryTests(unittest.TestCase):
                 [url],
             )
 
-    def test_evaluated_vacancy_is_not_reserved_again_in_same_generation(self) -> None:
-        with TemporaryDirectory() as directory:
-            history = VacancyHistory(Path(directory) / "vacancy-history.sqlite3")
-            url = "https://hh.ru/vacancy/456"
-            history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0)
-
-            history.mark_evaluated(url, score=31, accepted=False)
-
-            self.assertEqual(
-                history.reserve_unseen([url], search_query="Python", limit=1, revisit_after_days=0),
-                [],
-            )
-
     def test_response_outcome_is_persisted_once_and_blocks_automatic_retry(self) -> None:
         with TemporaryDirectory() as directory:
             history = VacancyHistory(Path(directory) / "history.sqlite3")

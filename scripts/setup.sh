@@ -18,5 +18,4 @@ fi
 export UV_CACHE_DIR="$PROJECT_DIR/.uv-cache"
 uv sync --locked --extra dev
 uv run --locked playwright install chromium
-uv run --locked python -m hh_raiser.setup_ollama
 printf 'Установка готова. Заполните .env и state/main/hh-config.ini, затем запустите task full-activity.\n'

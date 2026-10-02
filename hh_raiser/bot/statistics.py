@@ -50,24 +50,20 @@ def read_instance_statistics(
                 connection,
                 "SELECT COALESCE(SUM(view_count), 0) FROM vacancies",
             )
-            evaluated = _scalar_int(
-                connection,
-                "SELECT COUNT(*) FROM vacancies WHERE last_evaluated_at IS NOT NULL",
+            model_table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vacancy_model_evaluations'"
+            ).fetchone() is not None
+            evaluated = (
+                _scalar_int(connection, "SELECT COUNT(*) FROM vacancy_model_evaluations")
+                if model_table
+                else 0
             )
-            average_lexical_score = _scalar_float(
-                connection,
-                "SELECT AVG(last_match_score) FROM vacancies WHERE last_match_score IS NOT NULL",
-            )
-            columns = {
-                str(row[1]) for row in connection.execute("PRAGMA table_info(vacancies)")
-            }
             semantic_rows = (
                 connection.execute(
-                    """SELECT last_semantic_verdict, COUNT(*) FROM vacancies
-                    WHERE last_matching_mode = 'semantic' AND last_semantic_verdict IS NOT NULL
-                    GROUP BY last_semantic_verdict"""
+                    """SELECT verdict, COUNT(*) FROM vacancy_model_evaluations
+                    GROUP BY verdict"""
                 ).fetchall()
-                if {"last_matching_mode", "last_semantic_verdict"} <= columns
+                if model_table
                 else []
             )
             response_rows = connection.execute(
@@ -83,7 +79,6 @@ def read_instance_statistics(
         viewed_vacancies=viewed,
         total_views=total_views,
         evaluated=evaluated,
-        average_lexical_score=average_lexical_score,
         responses_by_status=Counter(str(status) for status, _timestamp in response_rows),
         next_raise_at=_read_next_raise_at(state_dir / "status.json"),
         today_sent=sent_counts_by_moscow_day(response_rows)[
@@ -91,7 +86,7 @@ def read_instance_statistics(
         ],
         daily_limit=daily_limit,
         responses_enabled=responses_enabled,
-        matching_mode=matching_mode,
+        matching_mode="polza" if matching_mode else None,
         semantic_verdicts={str(verdict): int(count) for verdict, count in semantic_rows},
     )
 
@@ -114,7 +109,6 @@ def _empty_statistics(
         viewed_vacancies=0,
         total_views=0,
         evaluated=0,
-        average_lexical_score=None,
         responses_by_status={},
         next_raise_at=next_raise_at,
         daily_limit=daily_limit,
@@ -149,7 +143,7 @@ def _read_response_settings(path: Path | None) -> tuple[int | None, bool | None,
         return (
             parser.getint("responses", "daily_limit", fallback=0),
             parser.getboolean("responses", "enabled", fallback=True),
-            parser.get("matching", "mode", fallback="lexical"),
+            "polza" if parser.getboolean("matching", "enabled", fallback=True) else None,
         )
     except (OSError, configparser.Error, ValueError):
         return None, None, None
@@ -158,11 +152,6 @@ def _read_response_settings(path: Path | None) -> tuple[int | None, bool | None,
 def _scalar_int(connection: sqlite3.Connection, query: str, *, default: int = 0) -> int:
     row = connection.execute(query).fetchone()
     return int(row[0]) if row and row[0] is not None else default
-
-
-def _scalar_float(connection: sqlite3.Connection, query: str) -> float | None:
-    row = connection.execute(query).fetchone()
-    return float(row[0]) if row and row[0] is not None else None
 
 
 def _read_next_raise_at(path: Path) -> datetime | None:

@@ -42,11 +42,6 @@ def format_service_status(instance: ManagedInstance, snapshot: ServiceSnapshot) 
 def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics) -> str:
     """Render compact counters understandable without knowledge of the database schema."""
 
-    average = (
-        f"{statistics.average_lexical_score:.1f}%"
-        if statistics.average_lexical_score is not None
-        else "ещё нет данных"
-    )
     next_raise = (
         statistics.next_raise_at.strftime("%d.%m.%Y %H:%M %Z")
         if statistics.next_raise_at
@@ -68,11 +63,11 @@ def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics)
         if statistics.semantic_verdicts.get(verdict, 0)
     ]
     semantic = (
-        "\nИтоговый отбор в режиме semantic (последняя оценка вакансии):\n"
+        "\nОценки Polza AI по вакансиям:\n"
         + "\n".join(semantic_lines)
         if semantic_lines
-        else "\nОценок в режиме semantic пока нет."
-        if statistics.matching_mode == "semantic"
+        else "\nОценок Polza AI пока нет."
+        if statistics.matching_mode == "polza"
         else ""
     )
     return (
@@ -80,8 +75,7 @@ def format_statistics(instance: ManagedInstance, statistics: InstanceStatistics)
         f"Найдено уникальных вакансий: <b>{statistics.discovered}</b>\n"
         f"Просмотрено уникальных вакансий: <b>{statistics.viewed_vacancies}</b>\n"
         f"Всего содержательных просмотров: <b>{statistics.total_views}</b>\n"
-        f"Оценено вакансий (все режимы): <b>{statistics.evaluated}</b>\n"
-        f"Средняя лексическая оценка, справочно: <b>{average}</b>{semantic}\n"
+        f"Оценок через Polza AI: <b>{statistics.evaluated}</b>{semantic}\n"
         f"Текущий цикл уникальных просмотров: <b>№ {statistics.generation}</b>\n"
         f"Следующее поднятие резюме: <b>{escape(next_raise)}</b>\n\n"
         f"<b>Подтверждённые отклики сегодня (Москва): "

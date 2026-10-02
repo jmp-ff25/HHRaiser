@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import re
 import sqlite3
@@ -9,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from hh_raiser.domain.matching import ModelDecision
 from hh_raiser.domain.vacancy_response import (
     ManualResponseReason,
     VacancyResponseRecord,
@@ -134,6 +136,20 @@ class VacancyHistory:
                 ON vacancy_responses(status);
                 CREATE INDEX IF NOT EXISTS idx_vacancy_responses_status_time
                 ON vacancy_responses(status, occurred_at);
+
+                CREATE TABLE IF NOT EXISTS vacancy_model_evaluations (
+                    vacancy_id TEXT NOT NULL REFERENCES vacancies(vacancy_id),
+                    resume_fingerprint TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    verdict TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    gaps_json TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_rub REAL,
+                    PRIMARY KEY (vacancy_id, resume_fingerprint)
+                );
 
                 CREATE TABLE IF NOT EXISTS search_page_coverage (
                     search_query TEXT NOT NULL,
@@ -412,40 +428,68 @@ class VacancyHistory:
                 (datetime.now(MOSCOW).isoformat(), generation, vacancy_id),
             )
 
-    def mark_evaluated(
+    def model_evaluation(self, url: str, resume_fingerprint: str) -> ModelDecision | None:
+        """Read only a paid model decision for the same resume; old scores do not qualify."""
+        vacancy_id = vacancy_id_from_url(url)
+        if vacancy_id is None:
+            return None
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT verdict, reason, gaps_json, input_tokens, output_tokens, cost_rub
+                FROM vacancy_model_evaluations
+                WHERE vacancy_id = ? AND resume_fingerprint = ?""",
+                (vacancy_id, resume_fingerprint),
+            ).fetchone()
+        if row is None:
+            return None
+        return ModelDecision(
+            verdict=str(row[0]),
+            reason=str(row[1]),
+            gaps=tuple(json.loads(str(row[2]))),
+            input_tokens=int(row[3]),
+            output_tokens=int(row[4]),
+            cost_rub=float(row[5]) if row[5] is not None else None,
+        )
+
+    def record_model_evaluation(
         self,
         url: str,
         *,
-        score: int,
-        accepted: bool,
-        mode: str = "lexical",
-        semantic_verdict: str | None = None,
-    ) -> None:
+        resume_fingerprint: str,
+        model: str,
+        decision: ModelDecision,
+    ) -> bool:
+        """Persist the API result immediately, before browser scrolling can fail."""
         vacancy_id = vacancy_id_from_url(url)
         if vacancy_id is None:
-            return
+            return False
+        now = datetime.now(MOSCOW).isoformat()
         with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            generation = self._read_generation(connection)
             connection.execute(
-                """
-                UPDATE vacancies
-                SET last_evaluated_at = ?, last_evaluated_generation = ?,
-                    last_match_score = ?, last_match_accepted = ?,
-                    last_matching_mode = ?, last_semantic_verdict = ?,
-                    reserved_generation = NULL, reserved_until = NULL
-                WHERE vacancy_id = ?
-                """,
+                """INSERT INTO vacancies(vacancy_id, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vacancy_id) DO UPDATE SET last_seen_at = excluded.last_seen_at""",
+                (vacancy_id, now, now),
+            )
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO vacancy_model_evaluations
+                (vacancy_id, resume_fingerprint, evaluated_at, model, verdict, reason,
+                 gaps_json, input_tokens, output_tokens, cost_rub)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    datetime.now(MOSCOW).isoformat(),
-                    generation,
-                    score,
-                    int(accepted),
-                    mode,
-                    semantic_verdict,
                     vacancy_id,
+                    resume_fingerprint,
+                    now,
+                    model,
+                    decision.verdict,
+                    decision.reason,
+                    json.dumps(decision.gaps, ensure_ascii=False),
+                    decision.input_tokens,
+                    decision.output_tokens,
+                    decision.cost_rub,
                 ),
             )
+        return cursor.rowcount > 0
 
     def has_response_record(self, url: str) -> bool:
         vacancy_id = vacancy_id_from_url(url)
